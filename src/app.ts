@@ -58,6 +58,7 @@ import {
   stationCost,
   stationLoaded,
   stationsForQuery,
+  findInDisabledSources,
 } from "./data/sources";
 import { heldPasses, SELECTABLE_PASSES } from "./data/passes";
 import { NETWORK_PROFILES, SNCF_PROFILE, profileById, type DatasetProfile } from "./data/profile";
@@ -787,6 +788,34 @@ function showSearchPrompt(): void {
 let searchHeldBack = false;
 
 // --- station resolution -----------------------------------------------------
+
+/**
+ * A station name the app couldn't resolve may simply belong to a country the user
+ * hasn't switched on. Offer to switch it on rather than leaving a red box that reads
+ * as "no such place" — the app knows Vielsalm perfectly well, it just wasn't asked
+ * about Belgium.
+ */
+function offerNetworkFor(text: string): void {
+  const disabled = NETWORK_PROFILES.filter((p) => !settings.networks.includes(p.id));
+  if (disabled.length === 0) return;
+  void findInDisabledSources(text, disabled, normalizeText).then((hit) => {
+    if (!hit) return;
+    // Still unresolved? The user may have fixed it, or enabled the network already.
+    if (resolveStation(text) || settings.networks.includes(hit.profile.id)) return;
+    showPostcard({
+      title: t("net_offer_title", { station: hit.label }),
+      message: t("net_offer_msg", { country: countryName(hit.profile.country), operator: hit.profile.operator }),
+      actionLabel: t("net_offer_action"),
+      onAction: () => {
+        settings = { ...settings, networks: [...settings.networks, hit.profile.id] };
+        store.saveSettings(settings);
+        void loadEnabledStations().then(() => {
+          runSearch();
+        });
+      },
+    });
+  });
+}
 
 function resolveStation(text: string): string | undefined {
   const norm = text.trim();
@@ -4129,6 +4158,7 @@ function buildLayout(root: HTMLElement): void {
 
   formApi = createForm({
     stationLabels: stationSuggestions(),
+    onUnknownStation: offerNetworkFor,
     regions: [...new Set(deps.registry.all().map((s) => s.region).filter((r): r is string => Boolean(r)))].sort(),
     today,
     bookingWindowDays: BOOKING_WINDOW_DAYS,

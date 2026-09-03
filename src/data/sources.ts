@@ -218,6 +218,41 @@ export async function loadSourceStations(
   return Array.isArray(list) ? list : [];
 }
 
+/** Station registries of sources the user has NOT enabled, cached per source. */
+const disabledStationCache = new Map<string, Promise<{ id: string; label: string; aliases?: string[] }[]>>();
+
+/**
+ * Find a typed station name among networks that are switched OFF.
+ *
+ * A name the app cannot resolve looks like a typo, and is shown as one. But the app
+ * often DOES know the place — it just hasn't been asked to search that country. This
+ * turns that dead end into an offer, and is the only reason a disabled source's
+ * station list is ever fetched (they are a few tens of KB each).
+ */
+export async function findInDisabledSources(
+  text: string,
+  profiles: DatasetProfile[],
+  normalize: (s: string) => string,
+): Promise<{ profile: DatasetProfile; label: string } | null> {
+  const wanted = normalize(text);
+  if (!wanted) return null;
+  for (const profile of profiles) {
+    if (!profile.stationsUrl) continue;
+    let list = disabledStationCache.get(profile.id);
+    if (!list) {
+      list = loadSourceStations(profile).catch(() => []);
+      disabledStationCache.set(profile.id, list);
+    }
+    for (const st of await list) {
+      if (normalize(st.label) === wanted || normalize(st.id) === wanted) {
+        return { profile, label: st.label };
+      }
+      if ((st.aliases ?? []).some((a) => normalize(a) === wanted)) return { profile, label: st.label };
+    }
+  }
+  return null;
+}
+
 /**
  * The stations a query refers to — the shards a search needs.
  *

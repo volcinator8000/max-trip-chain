@@ -114,6 +114,8 @@ export interface FormRefs {
 /** Data providers and action callbacks; the form holds no app logic of its own. */
 export interface FormProps {
   stationLabels: string[];
+  /** Called with a typed station name the app could not resolve. */
+  onUnknownStation?: (text: string) => void;
   regions: string[];
   today: string;
   bookingWindowDays: number;
@@ -962,7 +964,10 @@ export function createForm(props: FormProps): FormHandle {
     input.addEventListener("input", () => input.classList.remove("is-invalid"));
     input.addEventListener("change", () => {
       const v = input.value.trim();
-      input.classList.toggle("is-invalid", v !== "" && !props.resolveStation(v));
+      const bad = v !== "" && !props.resolveStation(v);
+      input.classList.toggle("is-invalid", bad);
+      // A name we can't place may just belong to a country that isn't switched on.
+      if (bad) props.onUnknownStation?.(v);
     });
   }
   // (Removed: auto-advancing focus from origin to destination on touch. It fired on
