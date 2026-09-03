@@ -11,8 +11,7 @@ import { reachableDestinations, reachableOrigins } from "../core/destinations";
 import { getawayIdeas, stayCalendar } from "../core/getaways";
 import { filterOptsFor, odConnOptsFor, getawayOptsFor } from "../core/queryOpts";
 import { addDays } from "../util/time";
-
-const BOOKING_WINDOW_DAYS = 30;
+import { BOOKING_WINDOW_DAYS } from "../data/sources";
 
 /** The ±flex window around the chosen date the browse lists sweep (see runBrowse). */
 function browseWindow(query: SearchQuery, today: string): string[] {

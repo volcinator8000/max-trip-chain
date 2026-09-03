@@ -123,6 +123,32 @@ describe("searchPool", () => {
     const b = searchPool(free, extra, "window-b");
     expect(b).not.toBe(a);
   });
+
+  it("surfaces snapshot trains the pass excludes, since they still run", () => {
+    // Genève/Bruxelles rows are advertised with a MAX seat but aren't bookable with
+    // the pass, so the snapshot carries them as unavailable. A paid search must still
+    // show them — otherwise the route lists every train EXCEPT those.
+    const excluded: MaxTrain = {
+      date: "2026-07-01",
+      origin: "PARIS (intramuros)",
+      destination: "GENEVE",
+      depart: "08:00",
+      arrive: "11:00",
+      departMin: 480,
+      arriveMin: 660,
+      durationMin: 180,
+      trainNo: "9764",
+      available: false,
+      free: false,
+      paid: true,
+    };
+    const pool = searchPool([excluded], extra, "window-c");
+    const geneva = pool.find((t) => t.destination === "GENEVE");
+    expect(geneva?.available).toBe(true);
+    expect(geneva?.paid).toBe(true);
+    // The snapshot itself is never mutated — it stays the free-only pool.
+    expect(excluded.available).toBe(false);
+  });
 });
 
 describe("paid trains in the core search", () => {

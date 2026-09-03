@@ -145,7 +145,13 @@ let poolArr: MaxTrain[] | null = null;
 export function searchPool(free: MaxTrain[], extra: MaxTrain[], key: string): MaxTrain[] {
   if (extra.length === 0) return free;
   if (key === poolKey && poolArr) return poolArr;
-  poolArr = free.concat(extra);
+  // The snapshot is not purely free trains: a handful of rows are advertised with a
+  // MAX seat but sit at stops the pass doesn't cover (Genève, Bruxelles, …), so they
+  // arrive here `available: false`. They still RUN, so a paid search has to include
+  // them — otherwise Paris→Genève would list every train except the ones the feed
+  // actually flags, and the cross-border joins Phase 3 needs would be missing their
+  // French half. Only those few rows are copied; the rest keep their identity.
+  poolArr = free.map((t) => (t.available ? t : { ...t, available: true, paid: true })).concat(extra);
   poolKey = key;
   return poolArr;
 }
