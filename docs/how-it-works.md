@@ -41,6 +41,14 @@ flowchart LR
 
 ---
 
+## Trains beyond France (optional)
+
+Settings has switches for **Germany (DB)**, **Belgium (SNCB)**, **Luxembourg (CFL)** and the **Netherlands (NS)**, plus one for **paid SNCF trains**. All are off to start with, because the app is a free-seat finder first — and because each one downloads a few megabytes of timetable.
+
+Turn one on and its trains join the same search: a Paris → Berlin trip can change at Frankfurt, using an SNCF train for the first half and a German one for the second. Foreign trains are never dressed up as free ones — each carries its operator's name and a "Paid" badge, and its "Book" button goes to that operator's own site, since SNCF Connect cannot sell you a Dutch ticket.
+
+The timetables come from each country's public open-data feed and are rebuilt with every deploy, exactly like the SNCF snapshot.
+
 ## How it runs for free, forever — no server, no account
 
 Here's the part that keeps it truly free: **there is no back-end and no login.** MAX Finder is just a bundle of ordinary files — a web page, some code, and that daily data file — parked on **GitHub Pages**, GitHub's free static-file hosting.

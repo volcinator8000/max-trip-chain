@@ -26,6 +26,36 @@ flowchart TD
   C -- "No" --> K["Keep: a free MAX seat"]
 ```
 
+**Two switches change what goes in that pool** (both off by default):
+
+- **Show paid trains** adds the trains that *run* but have no free MAX seat. They are not marked green — they get a "Paid" badge — but the search may now use them, so "nothing free that day" can become "nothing free, but these run".
+- **A European network** (Germany, Belgium, Luxembourg, the Netherlands) adds that country's trains. None of them has a MAX seat, so all of them are paid ones.
+
+The trick is that the search itself never learns what "paid" or "German" means. Instead the app hands it a *different pile of trains* — the green ones, or the green ones plus whatever you asked for, with everything in the pile marked usable. So every part of the app that already knew how to find a trip keeps working, unchanged, on the bigger pile.
+
+```mermaid
+flowchart LR
+  F["Free MAX trains<br/>(always)"] --> P["One pile the search runs on"]
+  D["Paid SNCF trains<br/>(switch)"] --> P
+  E["DB · SNCB · CFL · NS<br/>(switches)"] --> P
+  P --> S["The same search,<br/>unchanged"]
+```
+
+---
+
+## 1b. Agreeing on what a station is called
+
+**In one line:** A trip that crosses a border only exists if both countries' timetables call the changing point by the same name — and they don't.
+
+**Analogy:** Two friends arrange to meet "at the big station in Brussels". One writes it in French, one in Dutch, and a third calls it by the name on the metro map. All three mean the same platform, but a computer matching the words letter-by-letter would swear they are three different cities.
+
+**How it works, step by step:**
+
+- SNCF names whole cities: `PARIS (intramuros)`. German and Belgian timetables name individual stations: `Paris Est`, `Paris Nord (FR)`.
+- The app first *tidies* every name — drops accents, punctuation and country tags, and treats German `Hauptbahnhof` and `Hbf` as the same word. That alone makes most stations from different countries agree.
+- German data has one more trap: the entry for a whole station often carries the local-transport name (`S+U Berlin Hauptbahnhof`) while its platforms carry the railway name (`Berlin Hbf`). The app takes the name most of the platforms use, which is the one a traveller would recognise.
+- What is left over — the genuine disagreements — is a short hand-written list (`data/crosswalk.json`) of about twenty interchange points. Where SNCF also serves a station, **SNCF's spelling wins**, so the French half of a trip lands on exactly the same point.
+
 ---
 
 ## 2. Building a journey — direct, or one change at a big hub
