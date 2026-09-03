@@ -89,6 +89,12 @@ export interface Station {
   lng: number;
   region?: string;
   aliases?: string[];
+  /**
+   * Roughly how much traffic a station sees. Used to rank suggestions, so typing
+   * "Berlin" offers Berlin Hbf rather than Berlin Gesundbrunnen — a name that is a
+   * prefix of a dozen stations must resolve to the one people mean.
+   */
+  importance?: number;
 }
 
 /** One leg of a multi-city trip: an origin→destination pair on a specific date. */

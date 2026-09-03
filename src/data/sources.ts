@@ -151,6 +151,12 @@ export async function stationCost(profile: DatasetProfile, stationId: string): P
   return idx?.counts[stationId] ?? 0;
 }
 
+/** Legs per station, as the source published them — the traffic ranking signal. */
+export async function sourceCounts(profile: DatasetProfile): Promise<Record<string, number>> {
+  const idx = await shardIndex(profile);
+  return idx?.counts ?? {};
+}
+
 /** The hubs a source publishes, once its index is known. */
 export async function hubsOf(profile: DatasetProfile): Promise<string[]> {
   const idx = await shardIndex(profile);

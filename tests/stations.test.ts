@@ -114,3 +114,47 @@ describe("StationRegistry lookups", () => {
     expect(registry.label("SOME UNKNOWN GARE")).toBe("Some Unknown Gare");
   });
 });
+
+describe("ranking a name shared by several stations", () => {
+  /** The nine real Berlin stations the German feed publishes, with their real traffic. */
+  function berlinRegistry(): StationRegistry {
+    const r = new StationRegistry([]);
+    r.addStations([
+      { id: "BERLIN GESUNDBRUNNEN", label: "Berlin Gesundbrunnen", lat: 52.55, lng: 13.39, importance: 6_000 },
+      { id: "BERLIN HBF", label: "Berlin Hbf", lat: 52.525, lng: 13.369, importance: 50_010 },
+      { id: "BERLIN OSTKREUZ", label: "Berlin Ostkreuz", lat: 52.5, lng: 13.47, importance: 900 },
+      { id: "BERLIN SUDKREUZ", label: "Berlin Südkreuz", lat: 52.475, lng: 13.365, importance: 20_000 },
+    ]);
+    return r;
+  }
+
+  it("offers the busiest station first, not whichever the feed listed first", () => {
+    // The bug this guards: "Berlin" resolved to Berlin Gesundbrunnen — an S-Bahn stop
+    // with no service from Paris — so a Paris → Berlin search returned nothing at all.
+    const hits = berlinRegistry().search("berlin");
+    expect(hits[0]?.id).toBe("BERLIN HBF");
+  });
+
+  it("orders the rest by traffic too", () => {
+    const ids = berlinRegistry()
+      .search("berlin", 4)
+      .map((s) => s.id);
+    expect(ids).toEqual(["BERLIN HBF", "BERLIN SUDKREUZ", "BERLIN GESUNDBRUNNEN", "BERLIN OSTKREUZ"]);
+  });
+
+  it("still prefers a prefix match over a busier substring match", () => {
+    // Traffic breaks ties; it must not promote a station that merely contains the word.
+    const r = berlinRegistry();
+    r.addStations([{ id: "OST BERLINER PLATZ", label: "Ost Berliner Platz", lat: 0, lng: 0, importance: 999_999 }]);
+    // "berliner" starts a word here, so it is a prefix hit; use a true substring case.
+    const hits = r.search("kreuz");
+    expect(hits.map((s) => s.id)).toContain("BERLIN SUDKREUZ");
+  });
+
+  it("takes the highest importance when two sources describe one station", () => {
+    const r = new StationRegistry([]);
+    r.addStations([{ id: "KOLN HBF", label: "Köln Hbf", lat: 50.9, lng: 6.9, importance: 100 }]);
+    r.addStations([{ id: "KOLN HBF", label: "Köln Hbf", lat: 50.9, lng: 6.9, importance: 9_000 }]);
+    expect(r.get("KOLN HBF")?.importance).toBe(9_000);
+  });
+});

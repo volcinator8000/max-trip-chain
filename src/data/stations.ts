@@ -172,7 +172,15 @@ export class StationRegistry {
    * of being guessed at from a city name, or left off the map entirely.
    */
   addStations(
-    stations: { id: string; label: string; lat: number; lng: number; country?: string; aliases?: string[] }[],
+    stations: {
+      id: string;
+      label: string;
+      lat: number;
+      lng: number;
+      country?: string;
+      aliases?: string[];
+      importance?: number;
+    }[],
   ): void {
     for (const st of stations) {
       if (!st.id) continue;
@@ -180,6 +188,7 @@ export class StationRegistry {
       this.present.add(st.id);
       const existing = this.byId.get(st.id);
       if (existing) {
+        if (st.importance) existing.importance = Math.max(existing.importance ?? 0, st.importance);
         // The curated registry wins on naming, but a source can still supply the
         // coordinates it was missing.
         if (!Number.isFinite(existing.lat) && Number.isFinite(st.lat)) {
@@ -203,8 +212,15 @@ export class StationRegistry {
         // A station published under one language's name is searchable under the
         // others too (Leuven/Louvain, Bruxelles-Midi/Brussel-Zuid).
         ...(st.aliases?.length ? { aliases: st.aliases } : {}),
+        ...(st.importance ? { importance: st.importance } : {}),
       });
     }
+  }
+
+  /** Record how busy a station is, for suggestion ranking. */
+  setImportance(id: string, n: number): void {
+    const st = this.byId.get(id);
+    if (st) st.importance = Math.max(st.importance ?? 0, n);
   }
 
   get(id: string): Station | undefined {
@@ -254,6 +270,9 @@ export class StationRegistry {
     }
     const prefix: Station[] = [];
     const contains: Station[] = [];
+    // "berlin" prefixes nine German stations; the one meant is the busiest, not
+    // whichever the feed happened to list first.
+    const byTraffic = (a: Station, b: Station): number => (b.importance ?? 0) - (a.importance ?? 0);
     for (const { station, hay, words } of this.index) {
       // Hidden because the MAX pass can't book it — unless an operator that DOES
       // serve it is switched on and published it, which is what `sourced` records.
@@ -263,6 +282,10 @@ export class StationRegistry {
       if (words.some((w) => w.startsWith(q))) prefix.push(station);
       else if (hay.includes(q)) contains.push(station);
     }
+    // Sort each bucket by traffic, keeping prefix matches ahead of substring ones:
+    // "Berlin" must offer Berlin Hbf before Berlin Gesundbrunnen.
+    prefix.sort(byTraffic);
+    contains.sort(byTraffic);
     return this.dedupe([...prefix, ...contains]).slice(0, limit);
   }
 

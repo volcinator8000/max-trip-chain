@@ -59,6 +59,7 @@ import {
   stationLoaded,
   stationsForQuery,
   findInDisabledSources,
+  sourceCounts,
 } from "./data/sources";
 import { heldPasses, SELECTABLE_PASSES } from "./data/passes";
 import { NETWORK_PROFILES, SNCF_PROFILE, profileById, type DatasetProfile } from "./data/profile";
@@ -638,6 +639,13 @@ export function initApp(root: HTMLElement, dataset: Dataset, registry: StationRe
   // Every station present in the dataset becomes searchable (the curated registry
   // only covers map coordinates for the major ones).
   registry.addMissing(dataset.trains.flatMap((t) => [t.origin, t.destination]));
+  // How busy each station is, so a typed name resolves to the station people mean.
+  const traffic = new Map<string, number>();
+  for (const tr of dataset.trains) {
+    traffic.set(tr.origin, (traffic.get(tr.origin) ?? 0) + 1);
+    traffic.set(tr.destination, (traffic.get(tr.destination) ?? 0) + 1);
+  }
+  for (const [id, n] of traffic) registry.setImportance(id, n);
   labelToId = new Map(registry.list().map((s) => [s.label.toLowerCase(), s.id]));
 
   today = new Date().toISOString().slice(0, 10);
@@ -1991,11 +1999,15 @@ function paidNudgeEls(): HTMLElement[] {
 async function loadEnabledStations(): Promise<void> {
   const enabled = NETWORK_PROFILES.filter((p) => settings.networks.includes(p.id));
   if (enabled.length === 0) return;
-  const lists = await Promise.all(enabled.map((p) => loadSourceStations(p).catch(() => [])));
+  const lists = await Promise.all(
+    enabled.map(async (p) => ({ profile: p, list: await loadSourceStations(p).catch(() => []), counts: await sourceCounts(p) })),
+  );
   let added = false;
-  for (const list of lists) {
+  for (const { list, counts } of lists) {
     if (list.length === 0) continue;
-    deps.registry.addStations(list);
+    // The source's own leg counts are the importance signal: Berlin Hbf carries
+    // fifty thousand legs a month, Berlin Gesundbrunnen a handful.
+    deps.registry.addStations(list.map((st) => ({ ...st, importance: counts[st.id] ?? 0 })));
     added = true;
   }
   if (!added) return;
@@ -2022,7 +2034,8 @@ function stationSuggestions(): string[] {
     seen.add(key);
     out.push(name);
   };
-  for (const st of deps.registry.list()) {
+  const ranked = deps.registry.list().sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0));
+  for (const st of ranked) {
     push(st.label);
     const label = normalizeText(st.label);
     for (const alias of st.aliases ?? []) {
