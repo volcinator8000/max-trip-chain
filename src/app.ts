@@ -1772,12 +1772,12 @@ let refineToken = 0;
 /**
  * How many legs of extra hub data to pull in while refining a search.
  *
- * Hub shards are the big ones — a month of Bruxelles-Midi is ~444k legs — so they are
- * fetched in the background, cheapest first, and stop once this much has been added.
- * The user asked for exactly this: results that keep improving the longer a page is
- * open, rather than a slow first answer or a quietly incomplete one.
+ * Generous on purpose: a month of Bruxelles-Midi alone is ~444k legs, and refusing to
+ * fetch it because it is big is what made Lyon → Vielsalm impossible — the one leg
+ * missing was Bruxelles-Midi → Liège. Results that keep improving while the page is
+ * open beat a small download that cannot answer the question.
  */
-const REFINE_LEG_BUDGET = 400_000;
+const REFINE_LEG_BUDGET = 1_500_000;
 /** How many re-render rounds that budget is spread over. */
 const REFINE_ROUNDS = 3;
 
@@ -1904,15 +1904,31 @@ function refineWithHubs(): void {
   if (sources.length === 0) return;
   const token = ++refineToken;
   void (async () => {
-    // Cheapest first, so the most connections are gained per byte fetched.
-    const candidates: { profile: DatasetProfile; station: string; cost: number }[] = [];
+    // The hubs the endpoints ACTUALLY touch come first — cheapest-first was backwards.
+    // Ranking by size fetched the least-connected hubs and spent the budget before
+    // reaching the ones on the route: Lyon → Vielsalm needs Bruxelles-Midi → Liège,
+    // and both are among the largest files there are. A hub that appears in the
+    // origin's or destination's own shard is, by construction, on a path between them.
+    const adjacent = new Set<string>();
+    for (const t of extraTrains) {
+      if (loadedStations.includes(t.origin)) adjacent.add(t.destination);
+      if (loadedStations.includes(t.destination)) adjacent.add(t.origin);
+    }
+    const candidates: { profile: DatasetProfile; station: string; cost: number; near: boolean }[] = [];
     for (const profile of sources) {
       for (const hub of await hubsOf(profile)) {
         if (loadedStations.includes(hub) || stationLoaded(profile.id, hub)) continue;
-        candidates.push({ profile, station: hub, cost: await stationCost(profile, hub) });
+        candidates.push({
+          profile,
+          station: hub,
+          cost: await stationCost(profile, hub),
+          near: adjacent.has(hub),
+        });
       }
     }
-    candidates.sort((a, b) => a.cost - b.cost);
+    // Adjacent hubs first, then the rest; cheapest first within each group so the
+    // early rounds still land quickly.
+    candidates.sort((a, b) => Number(b.near) - Number(a.near) || a.cost - b.cost);
 
     // Fetched in BATCHES, not one at a time. Every widened pool is a new array, which
     // by design resets the connection caches — so re-rendering after each single hub
@@ -1925,7 +1941,9 @@ function refineWithHubs(): void {
     const perRound = Math.max(1, Math.ceil(REFINE_LEG_BUDGET / REFINE_ROUNDS));
     let batchCost = 0;
     for (const next of candidates) {
-      if (spent + next.cost > REFINE_LEG_BUDGET) break;
+      // Never skip the first candidate for size: if the most relevant hub is also the
+      // biggest, it is still the one the route needs.
+      if (spent > 0 && spent + next.cost > REFINE_LEG_BUDGET) break;
       spent += next.cost;
       batch.push(next);
       batchCost += next.cost;
