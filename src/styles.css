@@ -1790,6 +1790,30 @@ a {
   font-weight: 640;
   font-variant-numeric: tabular-nums;
 }
+/* Paid train: runs, but no free MAX seat. Amber rather than the accent green, so a
+   paid result can never be skimmed as a free one — this is the whole point of the
+   badge. Same amber family as the one-change chip, which already reads as "caveat". */
+.chip-paid {
+  background: color-mix(in oklab, #d97706 18%, var(--surface));
+  color: #b45309;
+  border-color: transparent;
+  font-weight: 640;
+}
+/* The "no free seat — show paid trains" nudge under an empty result list. */
+.paid-cta {
+  margin-top: 0.5rem;
+}
+/* Settings: a group heading above a block of switches. */
+.set-group-title {
+  margin: 0.2rem 0 0.1rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--text);
+}
+.set-group-intro {
+  margin-top: 1.1rem;
+}
+
 /* Hidden-city ("hidden train") accent — a dashed, distinct chip and card so it
    reads as a clever workaround, visually apart from the normal journey list. */
 .chip-hidden {

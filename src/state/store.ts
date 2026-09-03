@@ -39,6 +39,12 @@ export interface Settings {
   /** Show the interactive map. Off = no Leaflet/tiles at all: the biggest saving on
    *  low-end devices and slow connections; results go full-width. */
   map: boolean;
+  /**
+   * Include trains that RUN but have no free MAX seat, badged as paid. Off by
+   * default: the app is a free-seat finder first, and turning this on downloads the
+   * paid shards (see src/data/sources.ts) that the free snapshot deliberately omits.
+   */
+  showPaid: boolean;
 }
 
 export type Density = "comfortable" | "compact";
@@ -86,6 +92,7 @@ export function loadSettings(): Settings {
     density: s.density === "compact" ? "compact" : "comfortable",
     reduceMotion: s.reduceMotion === true,
     map: s.map !== false, // default on
+    showPaid: s.showPaid === true, // default off — free seats are the point of the app
   };
 }
 

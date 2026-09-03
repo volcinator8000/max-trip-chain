@@ -13,6 +13,8 @@
 // fs, path, and process so we can import them without @types/node.
 import * as fs from "fs";
 import * as path from "path";
+import { encodeShard, type EncodableTrain } from "../src/data/shard";
+import { parseTimeToMinutes } from "../src/util/time";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,6 +49,13 @@ const MAX_RETRIES = 3;
 const REPO_ROOT = process.cwd();
 const OUT_DATA = path.resolve(REPO_ROOT, "public", "data", "tgvmax.json");
 const OUT_META = path.resolve(REPO_ROOT, "public", "data", "meta.json");
+/**
+ * Paid shards: SNCF trains that run but have no free MAX seat, one compact file per
+ * date plus an index. Written for the "show paid trains" toggle, and deliberately
+ * NOT committed (see .gitignore) — at ~322k trains a month they would bloat git
+ * history permanently, so the deploy regenerates them each time.
+ */
+const OUT_PAID_DIR = path.resolve(REPO_ROOT, "public", "data", "paid");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,6 +132,86 @@ function mapRecord(raw: Record<string, unknown>): MappedRecord {
 }
 
 // ---------------------------------------------------------------------------
+// Paid shards
+// ---------------------------------------------------------------------------
+
+interface PaidIndex {
+  v: number;
+  source: string;
+  operator: string;
+  updatedAt: string;
+  /** Dates that have a shard, ascending, each with its train count. */
+  days: { date: string; count: number }[];
+}
+
+/**
+ * Group the non-MAX records by date and write one compact shard per day, plus an
+ * index the app reads to know which days exist. Best-effort: a failure here must not
+ * fail the job, because the free snapshot — the thing the app actually needs — has
+ * already been written by the time this runs.
+ */
+function writePaidShards(paid: MappedRecord[], updatedAt: string): void {
+  const byDate = new Map<string, EncodableTrain[]>();
+  let skipped = 0;
+  for (const r of paid) {
+    if (!r.date || !r.origine || !r.destination) continue;
+    if (r.origine === r.destination) continue; // self-loops, as the app's normalizer drops
+    const departMin = parseTimeToMinutes(r.heure_depart);
+    let arriveMin = parseTimeToMinutes(r.heure_arrivee);
+    if (Number.isNaN(departMin) || Number.isNaN(arriveMin)) {
+      skipped++;
+      continue;
+    }
+    if (arriveMin < departMin) arriveMin += 1440; // crosses midnight
+    const train: EncodableTrain = {
+      origin: r.origine,
+      destination: r.destination,
+      departMin,
+      arriveMin,
+      trainNo: r.train_no,
+      ...(r.axe ? { category: r.axe } : {}),
+    };
+    const arr = byDate.get(r.date);
+    if (arr) arr.push(train);
+    else byDate.set(r.date, [train]);
+  }
+
+  fs.mkdirSync(OUT_PAID_DIR, { recursive: true });
+  // Clear stale shards from a previous run so past dates don't linger and mislead.
+  for (const f of fs.readdirSync(OUT_PAID_DIR)) {
+    if (f.endsWith(".json")) fs.unlinkSync(path.join(OUT_PAID_DIR, f));
+  }
+
+  const days: { date: string; count: number }[] = [];
+  let bytes = 0;
+  for (const date of [...byDate.keys()].sort()) {
+    const trains = byDate.get(date) ?? [];
+    const shard = encodeShard(date, trains, {
+      source: "sncf-tgvmax",
+      operator: "SNCF",
+      free: false,
+    });
+    const json = JSON.stringify(shard);
+    fs.writeFileSync(path.join(OUT_PAID_DIR, `${date}.json`), json, "utf-8");
+    bytes += json.length;
+    days.push({ date, count: trains.length });
+  }
+
+  const index: PaidIndex = {
+    v: 1,
+    source: "sncf-tgvmax",
+    operator: "SNCF",
+    updatedAt,
+    days,
+  };
+  fs.writeFileSync(path.join(OUT_PAID_DIR, "index.json"), JSON.stringify(index), "utf-8");
+  console.log(
+    `[fetch-data] Wrote ${days.length} paid shards (${(bytes / 1_048_576).toFixed(1)} MB total` +
+      `${skipped ? `, ${skipped} unparseable rows skipped` : ""}) → ${OUT_PAID_DIR}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -186,6 +275,17 @@ async function main(): Promise<void> {
 
   fs.writeFileSync(OUT_META, JSON.stringify(meta, null, 2), "utf-8");
   console.log(`[fetch-data] Wrote metadata → ${OUT_META}`);
+
+  // Everything the app strictly needs is now on disk. The paid shards are an
+  // enhancement behind a toggle, so a failure here is logged and swallowed rather
+  // than failing the job and leaving the free snapshot uncommitted.
+  try {
+    const paid = mapped.filter((r) => r.od_happy_card.toUpperCase() !== "OUI");
+    writePaidShards(paid, meta.updatedAt);
+  } catch (err) {
+    console.error("[fetch-data] Paid shard generation failed (the toggle will find no data):", err);
+  }
+
   console.log(`[fetch-data] Done. updatedAt=${meta.updatedAt}`);
 }
 

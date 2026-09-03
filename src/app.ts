@@ -48,10 +48,20 @@ import {
 } from "./config";
 import { filterOptsFor, odConnOptsFor, odJourneyOptsFor, getawayOptsFor } from "./core/queryOpts";
 import { warmSearch } from "./search/searchClient";
+import { datesForQuery, loadExtraTrains, searchPool } from "./data/sources";
+import { SNCF_PROFILE } from "./data/profile";
 import { notify } from "./pwa/register";
 
 interface Deps {
+  /**
+   * The pool the search runs on: the free snapshot by default, or free-plus-paid
+   * when the "show paid trains" setting is on. Swapping this array (rather than
+   * threading a flag through the core) is what makes paid mode work without any
+   * paid-awareness in search / connections / calendars — see src/data/sources.ts.
+   */
   trains: MaxTrain[];
+  /** The committed free-MAX snapshot, kept so the pool can be rebuilt or reverted. */
+  free: MaxTrain[];
   meta: Dataset["meta"];
   registry: StationRegistry;
 }
@@ -603,7 +613,7 @@ async function promptInstall(): Promise<void> {
 }
 
 export function initApp(root: HTMLElement, dataset: Dataset, registry: StationRegistry): void {
-  deps = { trains: dataset.trains, meta: dataset.meta, registry };
+  deps = { trains: dataset.trains, free: dataset.trains, meta: dataset.meta, registry };
   rootRef = root;
   settings = store.loadSettings();
   const urlLang = new URLSearchParams(location.search).get("lang");
@@ -1682,6 +1692,74 @@ function cancelLoading(): boolean {
   return true;
 }
 
+/**
+ * Paid trains currently loaded, and the date window they cover. Kept here (rather
+ * than refetched) so flipping the toggle off and on again is instant.
+ */
+let paidExtra: MaxTrain[] = [];
+let paidWindowKey = "";
+
+/**
+ * Point `deps.trains` at the pool this search should use, fetching the paid shards
+ * first if the setting is on and this date window hasn't been loaded yet.
+ *
+ * Returns null when the pool is already correct, so the common (free-only) path stays
+ * fully synchronous and behaves exactly as it did before paid mode existed.
+ */
+function preparePool(): Promise<void> | null {
+  if (!settings.showPaid) {
+    deps.trains = deps.free;
+    return null;
+  }
+  const dates = datesForQuery(query, today);
+  const key = dates.join(",");
+  if (key === paidWindowKey) {
+    // Already fetched: searchPool memoizes, so this hands back the same array
+    // identity and the warm connection caches survive.
+    deps.trains = searchPool(deps.free, paidExtra, key);
+    return null;
+  }
+  return loadExtraTrains(SNCF_PROFILE, dates)
+    .then((extra) => {
+      paidExtra = extra;
+      paidWindowKey = key;
+      deps.trains = searchPool(deps.free, extra, key);
+      // Paid trains reach stations the free snapshot never mentions, so they must
+      // become searchable and mappable too.
+      registerStations(extra);
+    })
+    .catch(() => {
+      // Shards unavailable (offline, or a deploy that didn't generate them): fall
+      // back to free-only rather than failing the search.
+      deps.trains = deps.free;
+    });
+}
+
+/**
+ * The "no free seat — show paid trains" nudge for a no-results state.
+ *
+ * "Nothing is free that day" is a much more useful answer next to "…but trains do
+ * run". Returns nothing once paid trains are already shown, because then the list
+ * really is empty and there is nothing left to offer.
+ */
+function paidNudgeEls(): HTMLElement[] {
+  if (settings.showPaid) return [];
+  return [
+    render.paidCtaEl(t("paid_cta"), () => {
+      settings = { ...settings, showPaid: true };
+      store.saveSettings(settings);
+      runSearch();
+    }),
+  ];
+}
+
+/** Make every station in `trains` searchable, and refresh the label lookup. */
+function registerStations(trains: MaxTrain[]): void {
+  if (trains.length === 0) return;
+  deps.registry.addMissing(trains.flatMap((t) => [t.origin, t.destination]));
+  labelToId = new Map(deps.registry.list().map((st) => [st.label.toLowerCase(), st.id]));
+}
+
 function runSearch(): void {
   searchToken++;
   const token = searchToken;
@@ -1711,19 +1789,28 @@ function runSearch(): void {
       });
     });
   };
-  // No Worker (old browsers, and the jsdom test env): render straight away on the main
-  // thread, exactly as before the worker existed.
-  if (typeof Worker === "undefined") {
-    paint();
-    return;
-  }
-  // Otherwise pre-compute the heavy search primitives on the background worker so the
-  // main thread stays responsive; the render then reads them straight from cache. If
-  // the worker can't help, warmSearch resolves quickly and the render computes on-thread.
-  void warmSearch(deps.trains, query, today).then(() => {
-    if (token !== searchToken) return;
-    paint();
-  });
+  const proceed = (): void => {
+    if (token !== searchToken) return; // superseded while the pool loaded
+    // No Worker (old browsers, and the jsdom test env): render straight away on the
+    // main thread, exactly as before the worker existed.
+    if (typeof Worker === "undefined") {
+      paint();
+      return;
+    }
+    // Otherwise pre-compute the heavy search primitives on the background worker so the
+    // main thread stays responsive; the render then reads them straight from cache. If
+    // the worker can't help, warmSearch resolves quickly and the render computes on-thread.
+    void warmSearch(deps.trains, query, today, settings.showPaid).then(() => {
+      if (token !== searchToken) return;
+      paint();
+    });
+  };
+  // The pool must be final BEFORE the worker warms: its cache dump is keyed by route
+  // strings, not by which trains produced them, so warming on a free-only pool and
+  // rendering on a paid one would present free-only journeys as the paid answer.
+  const pool = preparePool();
+  if (pool) void pool.then(proceed);
+  else proceed();
 }
 
 function updateDocTitle(): void {
@@ -1942,7 +2029,7 @@ function runBrowse(c: RenderCtx, dir: "from" | "to"): void {
   if (total === 0) {
     // Suppress the empty message when nearby alternatives will fill the gap below.
     if (nearby.length === 0) {
-      refs.results.append(render.emptyEl(t("res_none")), render.hintEl(t("res_none_hint")));
+      refs.results.append(render.emptyEl(t("res_none")), render.hintEl(t("res_none_hint")), ...paidNudgeEls());
       showMap(anchor, []);
       return;
     }
@@ -2014,7 +2101,7 @@ function runGetaways(c: RenderCtx, origin: string): void {
   const { trips } = getawayIdeas(trains, origin, [query.date], getawayOpts());
   const shown = trips;
   if (shown.length === 0) {
-    refs.results.append(render.emptyEl(t("getaway_none")));
+    refs.results.append(render.emptyEl(t("getaway_none")), ...paidNudgeEls());
     showMap(origin, []);
     return;
   }
@@ -2051,7 +2138,7 @@ function runReverseGetaways(c: RenderCtx, destination: string): void {
   // `trip.destination` here names the discovered ORIGIN (reverseGetawayIdeas relabels it).
   const shown = trips;
   if (shown.length === 0) {
-    refs.results.append(render.emptyEl(t("getaway_none")));
+    refs.results.append(render.emptyEl(t("getaway_none")), ...paidNudgeEls());
     showMap(destination, []);
     return;
   }
@@ -2293,7 +2380,7 @@ function runTourSearch(c: RenderCtx): void {
     tours = single ? [single] : [];
   }
   if (tours.length === 0) {
-    refs.results.append(render.emptyEl(t("tour_none")), render.hintEl(t("tour_none_hint")));
+    refs.results.append(render.emptyEl(t("tour_none")), render.hintEl(t("tour_none_hint")), ...paidNudgeEls());
     showBaseMap();
     return;
   }
@@ -2318,7 +2405,7 @@ function runBestSearch(c: RenderCtx): void {
     trips = trips.filter((tr) => registry.get(tr.destination)?.region === query.region);
   }
   if (trips.length === 0) {
-    refs.results.append(render.emptyEl(t("res_none")), render.hintEl(t("res_none_hint")));
+    refs.results.append(render.emptyEl(t("res_none")), render.hintEl(t("res_none_hint")), ...paidNudgeEls());
     showBaseMap();
     return;
   }
@@ -2515,7 +2602,7 @@ function runOdSearch(c: RenderCtx): void {
     (radiusAlt.fromOrigin.length > 0 || radiusAlt.toDest.length > 0 || radiusAlt.bothEnds.length > 0);
 
   if (journeys.length === 0) {
-    if (!hasNearby) refs.results.append(render.emptyEl(t("res_none")), render.hintEl(t("res_none_hint")));
+    if (!hasNearby) refs.results.append(render.emptyEl(t("res_none")), render.hintEl(t("res_none_hint")), ...paidNudgeEls());
   } else {
     if (spanDays) {
       refs.results.append(el("p", { class: "muted count", text: t("res_itineraries", { n: journeys.length }) }));
@@ -3050,7 +3137,7 @@ function runTripSearch(c: RenderCtx): void {
     return latest < 0 ? undefined : t("daytrip_cal_hours", { h: Math.round((latest - arr) / 60) });
   };
   if (outJourneys.length === 0) {
-    body0.append(render.emptyEl(t("res_none")), render.hintEl(t("res_none_hint")));
+    body0.append(render.emptyEl(t("res_none")), render.hintEl(t("res_none_hint")), ...paidNudgeEls());
   } else {
     for (const j of outJourneys)
       body0.append(
@@ -3225,6 +3312,14 @@ function openSettings(): void {
     reduceMotion: settings.reduceMotion,
     map: settings.map,
     compact: settings.density === "compact",
+    showPaid: settings.showPaid,
+    onShowPaid: (v) => {
+      settings = { ...settings, showPaid: v };
+      store.saveSettings(settings);
+      // Changes which trains a search can return, so the current results are stale
+      // either way — rerun rather than leaving a list that no longer matches.
+      runSearch();
+    },
     onReduceMotion: (v) => {
       settings = { ...settings, reduceMotion: v };
       store.saveSettings(settings);

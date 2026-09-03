@@ -76,9 +76,12 @@ export function showSettingsModal(opts: {
   reduceMotion: boolean;
   map: boolean;
   compact: boolean;
+  /** Include trains that run but have no free MAX seat (badged "Paid"). */
+  showPaid: boolean;
   onReduceMotion: (v: boolean) => void;
   onMap: (v: boolean) => void;
   onCompact: (v: boolean) => void;
+  onShowPaid: (v: boolean) => void;
   /** Master "Low-end mode": ON = all three savers on, OFF = all three off. */
   onLowEnd: (v: boolean) => void;
 }): void {
@@ -111,10 +114,21 @@ export function showSettingsModal(opts: {
       rebuild({ compact: v });
     }),
   ]);
+  const content = el("div", { class: "set-rows" }, [
+    settingSwitch(t("set_show_paid"), t("set_show_paid_hint"), opts.showPaid, (v) => {
+      opts.onShowPaid(v);
+      rebuild({ showPaid: v });
+    }),
+  ]);
   dialog.append(
     el("div", { class: "modal-body" }, [
       el("h2", { class: "modal-title", text: t("settings_title") }),
-      el("p", { class: "modal-text muted small", text: t("set_perf") }),
+      // What the app shows is a content choice, kept clear of the performance savers
+      // below (and deliberately outside the low-end master switch, which must never
+      // silently change which trains a search returns).
+      el("h3", { class: "set-group-title", text: t("set_content") }),
+      content,
+      el("p", { class: "modal-text muted small set-group-intro", text: t("set_perf") }),
       el("div", { class: "set-rows set-master" }, [master]),
       body,
       el("p", {

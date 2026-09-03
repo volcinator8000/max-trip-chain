@@ -46,7 +46,22 @@ export interface MaxTrain {
   arriveMin: number; // minutes from midnight (arrival, +1440 if past midnight)
   durationMin: number;
   trainNo: string;
-  available: boolean; // od_happy_card === "OUI"
+  /**
+   * Usable by the search that is running now. In the default (free-only) pool this
+   * equals {@link MaxTrain.free}; in a pool built with paid trains included it is
+   * true for paid trains too, so the whole core — filters, connections, calendars —
+   * keeps its single "can I use this train?" test and needs no paid-awareness.
+   * See {@link file://./data/sources.ts}.
+   */
+  available: boolean;
+  /** A free MAX seat is genuinely reservable on this train (SNCF: od_happy_card === "OUI"). */
+  free: boolean;
+  /** The train runs but needs a paid ticket — drives the "Paid" badge in results. */
+  paid?: boolean;
+  /** Profile id the train came from, e.g. "sncf-tgvmax", "db-fernverkehr". */
+  source?: string;
+  /** Operator label for the result badge, e.g. "SNCF", "DB", "SNCB". */
+  operator?: string;
   axe?: string;
 }
 

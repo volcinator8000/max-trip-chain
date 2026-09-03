@@ -1,4 +1,4 @@
-import { DATA_URL, META_URL, SNCF_API_URL, HUB_STATIONS, NON_BOOKABLE_PATTERNS } from "../config";
+import { DATA_URL, META_URL, PAID_SHARD_DIR, SNCF_API_URL, HUB_STATIONS, NON_BOOKABLE_PATTERNS } from "../config";
 
 /**
  * A data-source PROFILE: everything about reading and judging ONE train dataset.
@@ -13,9 +13,20 @@ import { DATA_URL, META_URL, SNCF_API_URL, HUB_STATIONS, NON_BOOKABLE_PATTERNS }
 export interface DatasetProfile {
   /** Stable identifier, e.g. "sncf-tgvmax". */
   id: string;
+  /** Operator label shown on result badges, e.g. "SNCF", "DB", "SNCB". */
+  operator: string;
+  /** ISO 3166-1 alpha-2 country the network is centred on ("FR", "DE", …). */
+  country: string;
   /** Base-relative snapshot + metadata URLs (served with the static site). */
   dataUrl: string;
   metaUrl: string;
+  /**
+   * Base-relative directory of this source's compact per-day shards (see
+   * {@link file://./shard.ts}), or undefined when it has none. SNCF publishes its
+   * PAID trains here (the free ones live in the committed snapshot); a foreign
+   * network publishes all of its trains here, since none are MAX-free.
+   */
+  shardDir?: string;
   /** Upstream open-data API (optional; used by the data-refresh script). */
   apiUrl?: string;
   /** Pull the core fields out of one raw record (whatever shape the source uses). */
@@ -63,8 +74,11 @@ function str(v: unknown): string | undefined {
  */
 export const SNCF_PROFILE: DatasetProfile = {
   id: "sncf-tgvmax",
+  operator: "SNCF",
+  country: "FR",
   dataUrl: DATA_URL,
   metaUrl: META_URL,
+  shardDir: PAID_SHARD_DIR,
   apiUrl: SNCF_API_URL,
   read: (r) => ({
     origin: str(r.origine),

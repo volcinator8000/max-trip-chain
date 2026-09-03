@@ -50,8 +50,17 @@ function ensureWorker(): Worker | null {
  * Pre-compute the query's heavy search primitives in the worker and warm the local
  * caches. Resolves once done (or immediately if the worker can't help), so the caller
  * can render right after. Never throws.
+ *
+ * `includePaid` must match the pool the caller is about to render with. The dump is
+ * keyed by route strings alone, so a worker warming a free-only pool would otherwise
+ * hand back free-only journeys that the paid render would trust as complete.
  */
-export function warmSearch(trains: MaxTrain[], query: SearchQuery, today: string): Promise<void> {
+export function warmSearch(
+  trains: MaxTrain[],
+  query: SearchQuery,
+  today: string,
+  includePaid = false,
+): Promise<void> {
   const w = ensureWorker();
   if (!w) return Promise.resolve();
   const id = ++seq;
@@ -75,7 +84,7 @@ export function warmSearch(trains: MaxTrain[], query: SearchQuery, today: string
       if (pending.delete(id)) finish(null);
     }, 4000);
     try {
-      w.postMessage({ id, query, today });
+      w.postMessage({ id, query, today, includePaid });
     } catch {
       pending.delete(id);
       finish(null);

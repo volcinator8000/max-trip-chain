@@ -52,6 +52,16 @@ const BASE = (import.meta.env?.BASE_URL ?? "/") as string;
 export const DATA_URL = `${BASE}data/tgvmax.json`;
 export const META_URL = `${BASE}data/meta.json`;
 
+/**
+ * Compact per-day shards of SNCF trains that RUN but have no free MAX seat, used by
+ * the "show paid trains" toggle. They are built during the Pages deploy and served
+ * as static files, never committed: at ~322k trains a month they would add hundreds
+ * of megabytes to git history, while the free snapshot (the constitution's offline
+ * fallback) stays small and committed. A missing shard simply means no paid trains
+ * for that day. See scripts/fetch-data.ts and src/data/sources.ts.
+ */
+export const PAID_SHARD_DIR = `${BASE}data/paid/`;
+
 export const SNCF_CONNECT_URL = "https://www.sncf-connect.com/";
 
 export const SITE_URL = "https://volcinator8000.github.io/max-trip-chain/";

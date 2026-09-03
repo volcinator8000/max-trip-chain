@@ -125,6 +125,11 @@ export function trainRowEl(train: MaxTrain): HTMLElement {
     ...(isNightTrain(train)
       ? [el("span", { class: "night-badge", text: "🌙", attrs: { title: t("field_night"), "aria-label": t("field_night") } })]
       : []),
+    // This train runs but has no free MAX seat. It is only ever in the list because
+    // the user turned paid trains on, and it must never be mistaken for a free one.
+    ...(train.paid
+      ? [el("span", { class: "chip chip-paid", text: t("badge_paid"), attrs: { title: t("badge_paid_hint") } })]
+      : []),
   ]);
   return el("div", { class: "train-row" }, [time, meta]);
 }
@@ -596,6 +601,11 @@ function journeyBodyEl(j: Journey, ctx: RenderCtx, label?: string, dateLabel?: s
     // date (otherwise which day a proposition is for is lost). Leads the head.
     ...(dateLabel ? [el("span", { class: "chip chip-date", text: dateLabel })] : []),
     tag,
+    // One paid leg makes the whole journey cost money, so the card says so up front
+    // rather than leaving it to be spotted on a single leg further down.
+    ...(j.legs.some((l) => l.paid)
+      ? [el("span", { class: "chip chip-paid", text: t("badge_paid"), attrs: { title: t("badge_paid_hint") } })]
+      : []),
     el("span", { class: "journey-total" }, [icon(I.clock), el("span", { text: formatDuration(j.totalDurationMin) })]),
   ]);
   return el("div", { class: "journey-body" }, [head, legs]);
@@ -1288,6 +1298,17 @@ function tourSaveBtn(tour: Tour, ctx: RenderCtx): HTMLElement {
 
 export function emptyEl(message: string): HTMLElement {
   return el("p", { class: "empty", text: message });
+}
+
+/**
+ * The nudge shown when a search finds no free MAX seat and paid trains are switched
+ * off: the answer "nothing is free that day" is much more useful next to "…but 40
+ * trains do run — show them?".
+ */
+export function paidCtaEl(label: string, onEnable: () => void): HTMLElement {
+  return el("p", { class: "empty-hint paid-cta" }, [
+    el("button", { class: "btn btn-ghost btn-sm", type: "button", text: label, on: { click: onEnable } }),
+  ]);
 }
 
 /** A muted "things to try" hint shown under a no-results message. */

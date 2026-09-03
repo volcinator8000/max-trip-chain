@@ -58,6 +58,8 @@ describe("normalizeRecord", () => {
     // can be plugged in via a profile without touching the search code.
     const demo: DatasetProfile = {
       id: "demo",
+      operator: "DEMO",
+      country: "XX",
       dataUrl: "/x",
       metaUrl: "/y",
       read: (r) => ({

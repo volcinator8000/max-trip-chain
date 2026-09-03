@@ -32,6 +32,7 @@ export function normalizeRecord(r: RawRecord, profile: DatasetProfile = SNCF_PRO
   const excluded =
     matchesPattern(origin, profile.nonBookablePatterns) ||
     matchesPattern(destination, profile.nonBookablePatterns);
+  const free = reservable && !excluded;
   return {
     date: f.date,
     origin,
@@ -42,7 +43,12 @@ export function normalizeRecord(r: RawRecord, profile: DatasetProfile = SNCF_PRO
     arriveMin,
     durationMin: arriveMin - departMin,
     trainNo: f.trainNo ?? "",
-    available: reservable && !excluded,
+    // The default pool is free-only, so "usable now" starts out as "free".
+    available: free,
+    free,
+    paid: !free,
+    source: profile.id,
+    operator: profile.operator,
     axe: f.category,
   };
 }
