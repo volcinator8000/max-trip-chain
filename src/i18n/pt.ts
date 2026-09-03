@@ -273,6 +273,7 @@ export const pt: Dict = {
   sort_days: "Mais dias",
   sort_closest: "Mais perto",
   sort_fastest: "Mais rápido",
+  sort_cheapest: "Mais barato",
   sort_arrival: "Chegada mais cedo",
   sort_departure: "Partida mais cedo",
   sort_name: "A–Z",

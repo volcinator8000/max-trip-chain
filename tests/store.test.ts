@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { SearchQuery } from "../src/types";
 import { queryToParams, queryFromParams } from "../src/state/store";
+import { SORT_KEYS } from "../src/types";
 import { stayFromNights, stayNights } from "../src/core/roundtrip";
 
 describe("stay choice: fixed N nights are decoupled from Flexible (bug: stepper stuck at 4)", () => {
@@ -99,5 +100,30 @@ describe("URL deep-link round-trip", () => {
     expect(queryFromParams(new URLSearchParams("flex=0"), "2026-06-25").flexDays).toBeUndefined();
     expect(queryFromParams(new URLSearchParams("flex=-2"), "2026-06-25").flexDays).toBeUndefined();
     expect(queryFromParams(new URLSearchParams(""), "2026-06-25").flexDays).toBeUndefined();
+  });
+});
+
+describe("sort keys in shared links", () => {
+  it("restores every ordering the UI offers", () => {
+    // The URL whitelist used to be written out by hand and had drifted: "arrival" and
+    // "departure" were offered in the app but silently dropped from a shared link.
+    // Deriving it from SORT_KEYS is what keeps these in step.
+    for (const key of SORT_KEYS) {
+      const q = queryFromParams(new URLSearchParams(`mode=od&sort=${key}`), "2026-07-01");
+      expect(q.sort, key).toBe(key);
+    }
+  });
+
+  it("round-trips a sort through the URL", () => {
+    for (const key of SORT_KEYS) {
+      const q: SearchQuery = { mode: "od", date: "2026-07-01", card: "jeune", maxConnections: 1, sort: key };
+      // "rec" IS the default rank, so it is left out of the link rather than written.
+      const params = queryToParams(q);
+      expect(params.get("sort"), key).toBe(key === "rec" ? null : key);
+    }
+  });
+
+  it("ignores a sort key it doesn't know", () => {
+    expect(queryFromParams(new URLSearchParams("mode=od&sort=bogus"), "2026-07-01").sort).toBeUndefined();
   });
 });

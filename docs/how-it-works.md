@@ -53,6 +53,8 @@ There are three answers, not two, because passes are not that tidy:
 
 A few honest details. **MAX SENIOR** is weekday-only, and the app now filters on that rather than only warning. **SNCB Train+** is a reduction across the whole network that applies outside the weekday rush, so it labels off-peak trains rather than making anything free. **NS Traject Vrij** is valid between two named stations, so you type them in; until you do, it covers nothing. The **Deutschlandticket** is valid on regional transport only — none of the German long-distance trains loaded here — and the app says so under the switch instead of quietly changing nothing. And travel inside **Luxembourg is free for everyone**, so CFL trains show as free without any subscription at all.
 
+There is a **Cheapest** ordering in the results, which appears once paid trains or a foreign network are switched on. It ranks by what your passes cover — free, then reservation, then paid, with a discount card breaking ties among the paid ones. It is not a price: **no source the app reads publishes fares.** The SNCF dataset says only whether a MAX seat is open, and none of the five foreign timetable feeds carries fare data at all. Real prices change by the hour and come from each operator's booking system, which needs an account and a server — neither of which this app has. So it ranks what is actually known rather than inventing numbers.
+
 The app can only apply rules you declare: apart from SNCF, no timetable feed carries fare information, so nothing here is read from the data. The rules live in `src/data/passes.ts` in the open, and each is one line to correct.
 
 ## Trains beyond France (optional)

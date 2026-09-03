@@ -222,3 +222,39 @@ describe("the pass table itself", () => {
     }
   });
 });
+
+describe("ranking journeys by what they cost you", () => {
+  // No feed the app reads publishes a fare — not the SNCF dataset, not any of the
+  // five GTFS feeds — so "cheapest" ranks pass coverage, which IS known. These lock
+  // in the ordering that produces: free < reservation < paid, discounts breaking ties.
+  const leg = (coverage: "free" | "reserve" | "paid", discount = 0): MaxTrain =>
+    train({ coverage, discount, paid: coverage !== "free" });
+
+  /** Mirrors costRank in src/app.ts. */
+  const rank = (legs: MaxTrain[]): number =>
+    legs.reduce((sum, l) => {
+      const c = l.coverage ?? (l.paid ? "paid" : "free");
+      if (c === "free") return sum;
+      return sum + (c === "reserve" ? 1 : 10 - Math.min(9, (l.discount ?? 0) / 12));
+    }, 0);
+
+  it("puts a wholly covered journey first", () => {
+    expect(rank([leg("free"), leg("free")])).toBe(0);
+  });
+
+  it("prefers a reservation supplement to paying a full fare", () => {
+    expect(rank([leg("reserve")])).toBeLessThan(rank([leg("paid")]));
+  });
+
+  it("counts every leg, so fewer paid legs win", () => {
+    expect(rank([leg("free"), leg("paid")])).toBeLessThan(rank([leg("paid"), leg("paid")]));
+  });
+
+  it("lets a discount card improve a paid journey without making it free", () => {
+    const discounted = rank([leg("paid", 50)]);
+    expect(discounted).toBeLessThan(rank([leg("paid")]));
+    expect(discounted).toBeGreaterThan(rank([leg("free")]));
+    // ...and never good enough to beat a journey that costs nothing at all.
+    expect(discounted).toBeGreaterThan(rank([leg("reserve")]));
+  });
+});

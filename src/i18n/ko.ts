@@ -274,6 +274,7 @@ export const ko: Dict = {
   sort_days: "일수 많은 순",
   sort_closest: "가까운 순",
   sort_fastest: "빠른 순",
+  sort_cheapest: "가장 저렴",
   sort_arrival: "가장 빠른 도착",
   sort_departure: "가장 빠른 출발",
   sort_name: "가나다순",

@@ -198,8 +198,31 @@ export interface SearchQuery {
   sort?: SortKey;
 }
 
+/**
+ * Every result ordering, as a value list so the type and the URL parser cannot drift.
+ *
+ * They did: the URL whitelist was written out separately and never gained "arrival"
+ * or "departure", so a shared link using either silently fell back to the default
+ * rank. Deriving {@link SortKey} from this list is what stops that recurring.
+ *
+ * "cheapest" ranks from what the traveller's passes cover, NOT from fares: no source
+ * the app reads publishes a price — not the SNCF dataset, not any of the five GTFS
+ * feeds — so free beats reservation beats paid, with discounts breaking ties.
+ */
+export const SORT_KEYS = [
+  "rec",
+  "trains",
+  "days",
+  "closest",
+  "fastest",
+  "name",
+  "arrival",
+  "departure",
+  "cheapest",
+] as const;
+
 /** Result ordering for the destination / ideas lists. */
-export type SortKey = "rec" | "trains" | "days" | "closest" | "fastest" | "name" | "arrival" | "departure";
+export type SortKey = (typeof SORT_KEYS)[number];
 
 /** A direct or multi-leg (1..3 legs) journey. */
 export interface Journey {

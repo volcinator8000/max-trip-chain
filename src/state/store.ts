@@ -1,4 +1,4 @@
-import type { SearchQuery, SearchMode, CardType, Journey, SortKey, TripLeg, StayChoice } from "../types";
+import { SORT_KEYS, type SearchQuery, type SearchMode, type CardType, type Journey, type SortKey, type TripLeg, type StayChoice } from "../types";
 import type { Tour } from "../core/tour";
 import { stayFromNights } from "../core/roundtrip";
 import { dayIndex } from "../util/time";
@@ -313,8 +313,6 @@ export function queryToParams(q: SearchQuery): URLSearchParams {
   if (q.sort && q.sort !== "rec") p.set("sort", q.sort);
   return p;
 }
-
-const SORT_KEYS = ["rec", "trains", "days", "closest", "fastest", "name"] as const;
 
 export function queryFromParams(p: URLSearchParams, fallbackDate: string): SearchQuery {
   const rawMode = p.get("mode") ?? "from";

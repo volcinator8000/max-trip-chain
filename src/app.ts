@@ -1669,7 +1669,18 @@ const SORT_LABEL = {
   name: "sort_name",
   arrival: "sort_arrival",
   departure: "sort_departure",
+  cheapest: "sort_cheapest",
 } as const;
+
+/**
+ * Add "cheapest" to a mode's sort keys, but only when something in the list could
+ * actually cost money. With the app in its default state every result is a free MAX
+ * seat, so the option would rank nothing and only add noise.
+ */
+function withCheapest(keys: SortKey[]): SortKey[] {
+  const canCost = settings.showPaid || settings.networks.length > 0;
+  return canCost ? [...keys.slice(0, 1), "cheapest", ...keys.slice(1)] : keys;
+}
 
 /** Build the sort-picker option list for a mode from its applicable keys. */
 function sortOptions(keys: SortKey[]): { value: SortKey; label: string }[] {
@@ -1690,6 +1701,29 @@ interface SortAccessors<T> {
   durationMin?: (x: T) => number;
   arriveMin?: (x: T) => number; // absolute arrival minutes (earliest first)
   departMin?: (x: T) => number; // departure minutes (earliest first)
+  /** What the traveller must pay, lower being better — see {@link costRank}. */
+  cost?: (x: T) => number;
+}
+
+/**
+ * How much a journey costs its traveller, as a rank rather than a price.
+ *
+ * No feed the app reads carries a fare — the SNCF dataset publishes only whether a
+ * MAX seat is open, and none of the five GTFS feeds ships fare data at all. So this
+ * ranks what IS known: whether the passes held cover each leg. A journey is as
+ * expensive as its worst leg, a discount card lowers a paid leg without making it
+ * free, and more paid legs cost more than fewer.
+ */
+function costRank(legs: MaxTrain[]): number {
+  let rank = 0;
+  for (const leg of legs) {
+    const coverage = leg.coverage ?? (leg.paid ? "paid" : "free");
+    if (coverage === "free") continue;
+    // A leg needing a reservation costs something; a wholly unpaid-for leg costs far
+    // more, and a discount takes the edge off it without closing the gap.
+    rank += coverage === "reserve" ? 1 : 10 - Math.min(9, (leg.discount ?? 0) / 12);
+  }
+  return rank;
 }
 
 /**
@@ -1719,6 +1753,11 @@ function applySort<T>(items: T[], acc: SortAccessors<T>): T[] {
       break;
     case "departure":
       if (acc.departMin) arr.sort((a, b) => acc.departMin!(a) - acc.departMin!(b));
+      break;
+    case "cheapest":
+      // Ties keep the list's natural rank, so "cheapest" among equally-free journeys
+      // still shows the recommended one first rather than an arbitrary shuffle.
+      if (acc.cost) arr.sort((a, b) => acc.cost!(a) - acc.cost!(b));
       break;
     case "name":
       arr.sort((a, b) => acc.name(a).localeCompare(acc.name(b)));
@@ -2382,12 +2421,13 @@ function runBrowse(c: RenderCtx, dir: "from" | "to"): void {
       name: (g) => registry.label(g.station),
       distanceKm: (g) => stationDistanceKm(anchor, g.station),
       durationMin: (g) => g.minDurationMin,
+      cost: (g) => Math.min(...g.trains.map((tr) => costRank([tr]))),
     });
     refs.results.append(
       render.listToolbarEl(
         t(countKey, { n: total }),
         query.sort ?? "rec",
-        sortOptions(["rec", "fastest", "closest", "name"]),
+        sortOptions(withCheapest(["rec", "fastest", "closest", "name"])),
         onSort,
       ),
     );
@@ -2763,12 +2803,13 @@ function runBestSearch(c: RenderCtx): void {
     days: (tr) => tr.days ?? 0,
     distanceKm: (tr) => stationDistanceKm(origin, tr.destination),
     durationMin: (tr) => tr.journey.totalDurationMin,
+    cost: (tr) => costRank(tr.journey.legs),
   });
   refs.results.append(
     render.listToolbarEl(
       t("res_destinations", { n: trips.length }),
       query.sort ?? "rec",
-      sortOptions(["rec", "trains", "days", "closest", "fastest", "name"]),
+      sortOptions(withCheapest(["rec", "trains", "days", "closest", "fastest", "name"])),
       onSort,
     ),
   );
@@ -2930,6 +2971,7 @@ function runOdSearch(c: RenderCtx): void {
       durationMin: (j) => j.totalDurationMin,
       arriveMin: (j) => (flex > 0 ? dayIndex(j.date) * 1440 : 0) + journeyArriveAbs(j),
       departMin: (j) => (flex > 0 ? dayIndex(j.date) * 1440 : 0) + j.departMin,
+      cost: (j) => costRank(j.legs),
     },
   );
 
@@ -2956,7 +2998,7 @@ function runOdSearch(c: RenderCtx): void {
       render.listToolbarEl(
         t("badge_trains", { n: journeys.length }),
         query.sort ?? "rec",
-        sortOptions(["rec", "arrival", "departure", "fastest"]),
+        sortOptions(withCheapest(["rec", "arrival", "departure", "fastest"])),
         onSort,
       ),
     );
