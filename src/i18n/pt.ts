@@ -106,7 +106,7 @@ export const pt: Dict = {
   badge_paid_hint: "Este comboio circula, mas não há lugar MAX gratuito — o bilhete é pago.",
   paid_cta: "Sem lugar gratuito — ver comboios pagos",
   set_networks: "Redes europeias",
-  set_network_hint: "Comboios em {country}. Acrescenta alguns MB de horários ao carregamento.",
+  set_network_hint: "Comboios em {country}. Descarrega vários MB de horários e consome memória — active uma ou duas de cada vez.",
   country_fr: "França",
   country_de: "Alemanha",
   country_be: "Bélgica",

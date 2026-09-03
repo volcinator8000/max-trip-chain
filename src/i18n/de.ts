@@ -106,7 +106,7 @@ export const de: Dict = {
   badge_paid_hint: "Dieser Zug fährt, aber es gibt keinen freien MAX-Platz — das Ticket kostet.",
   paid_cta: "Kein freier Platz — kostenpflichtige Züge anzeigen",
   set_networks: "Europäische Netze",
-  set_network_hint: "Züge in {country}. Lädt einige MB Fahrpläne zusätzlich.",
+  set_network_hint: "Züge in {country}. Lädt mehrere MB Fahrpläne und braucht Speicher – am besten ein bis zwei gleichzeitig aktivieren.",
   country_fr: "Frankreich",
   country_de: "Deutschland",
   country_be: "Belgien",

@@ -82,9 +82,18 @@ canonical id wherever SNCF also serves the station.
 - **Great Britain** — the Belgian feed lists London St Pancras, but its Eurostar
   services carry no future dates, so GB is effectively absent. Domestic GB timetables
   need Rail Data Marketplace credentials, which a fork can add as a repo secret.
-- **Payload size.** Each network costs roughly 2-7 MB gzipped for a whole 30-day
-  window, because every mode draws a 30-day calendar. Loading the chosen day first
-  and filling the calendar in behind it would cut the first search dramatically.
+- **Payload and memory.** Each network costs roughly 2-7 MB gzipped for a whole
+  30-day window, because every mode draws a 30-day calendar — and once decoded, all
+  four networks together are on the order of three million train objects, which is
+  far too much for a phone. Today's mitigations are that networks are opt-in and that
+  the search worker is skipped while one is on (so only one copy of the pool exists).
+  The real fix is progressive loading: fetch the chosen day, render, then fill the
+  calendar in behind it, holding only the days actually in view.
+- **Changing at a city aggregate.** `MIN_CONNECTION_MIN` is 15 minutes, applied to
+  `PARIS (intramuros)` as if it were one station. A Belgian arrival at Nord and a
+  German departure from Est 20 minutes later will be offered as a valid change. This
+  predates V2 (Gare de Lyon → Nord had the same flaw) but crossing borders makes it
+  much likelier; hubs that are really cities need their own minimum.
 
 ---
 

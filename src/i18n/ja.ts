@@ -106,7 +106,7 @@ export const ja: Dict = {
   badge_paid_hint: "この列車は運行していますが、無料のMAX席がないため切符は有料です。",
   paid_cta: "無料の席なし — 有料の列車を表示",
   set_networks: "ヨーロッパの鉄道網",
-  set_network_hint: "{country}の列車。時刻表を数MB追加で読み込みます。",
+  set_network_hint: "{country}の列車。時刻表を数MB読み込み、メモリを使います。1〜2か国ずつ有効にしてください。",
   country_fr: "フランス",
   country_de: "ドイツ",
   country_be: "ベルギー",

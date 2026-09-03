@@ -1834,7 +1834,13 @@ function runSearch(): void {
     if (token !== searchToken) return; // superseded while the pool loaded
     // No Worker (old browsers, and the jsdom test env): render straight away on the
     // main thread, exactly as before the worker existed.
-    if (typeof Worker === "undefined") {
+    //
+    // Also skip the worker once a foreign network is on. The worker keeps its OWN
+    // copy of the pool, and a network's 30-day window is on the order of a million
+    // trains — a second copy is the difference between "heavy" and "out of memory"
+    // on a phone. Warming only saves main-thread jank, so trading it for half the
+    // memory is the right way round when the pool is this big.
+    if (typeof Worker === "undefined" || settings.networks.length > 0) {
       paint();
       return;
     }

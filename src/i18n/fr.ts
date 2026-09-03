@@ -108,7 +108,7 @@ export const fr = {
   badge_paid_hint: "Ce train circule mais aucune place MAX gratuite n'est disponible : le billet est payant.",
   paid_cta: "Aucune place gratuite — voir les trains payants",
   set_networks: "Réseaux européens",
-  set_network_hint: "Trains de {country}. Ajoute quelques Mo d'horaires au chargement.",
+  set_network_hint: "Trains de {country}. Télécharge plusieurs Mo d'horaires et consomme de la mémoire — activez-en un ou deux à la fois.",
   country_fr: "France",
   country_de: "Allemagne",
   country_be: "Belgique",

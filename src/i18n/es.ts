@@ -106,7 +106,7 @@ export const es: Dict = {
   badge_paid_hint: "Este tren circula, pero no hay plaza MAX gratuita: el billete es de pago.",
   paid_cta: "Sin plaza gratuita — ver trenes de pago",
   set_networks: "Redes europeas",
-  set_network_hint: "Trenes de {country}. Añade unos MB de horarios a la carga.",
+  set_network_hint: "Trenes de {country}. Descarga varios MB de horarios y consume memoria: active una o dos a la vez.",
   country_fr: "Francia",
   country_de: "Alemania",
   country_be: "Bélgica",

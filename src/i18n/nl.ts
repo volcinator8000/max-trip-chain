@@ -106,7 +106,7 @@ export const nl: Dict = {
   badge_paid_hint: "Deze trein rijdt, maar er is geen gratis MAX-plaats — het ticket kost geld.",
   paid_cta: "Geen gratis plaats — betaalde treinen tonen",
   set_networks: "Europese netwerken",
-  set_network_hint: "Treinen in {country}. Laadt enkele MB's aan dienstregelingen extra.",
+  set_network_hint: "Treinen in {country}. Downloadt enkele MB's aan dienstregelingen en gebruikt geheugen — zet er één of twee tegelijk aan.",
   country_fr: "Frankrijk",
   country_de: "Duitsland",
   country_be: "België",

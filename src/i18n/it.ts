@@ -106,7 +106,7 @@ export const it: Dict = {
   badge_paid_hint: "Questo treno circola, ma non c'è nessun posto MAX gratuito: il biglietto è a pagamento.",
   paid_cta: "Nessun posto gratuito — mostra i treni a pagamento",
   set_networks: "Reti europee",
-  set_network_hint: "Treni in {country}. Aggiunge qualche MB di orari al caricamento.",
+  set_network_hint: "Treni in {country}. Scarica diversi MB di orari e consuma memoria: attivane una o due alla volta.",
   country_fr: "Francia",
   country_de: "Germania",
   country_be: "Belgio",

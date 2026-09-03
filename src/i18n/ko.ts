@@ -106,7 +106,7 @@ export const ko: Dict = {
   badge_paid_hint: "이 열차는 운행하지만 무료 MAX 좌석이 없어 승차권을 구매해야 합니다.",
   paid_cta: "무료 좌석 없음 — 유료 열차 보기",
   set_networks: "유럽 철도망",
-  set_network_hint: "{country}의 열차. 시간표 몇 MB를 추가로 내려받습니다.",
+  set_network_hint: "{country}의 열차. 시간표 수 MB를 내려받고 메모리를 사용합니다 — 한 번에 한두 개만 켜세요.",
   country_fr: "프랑스",
   country_de: "독일",
   country_be: "벨기에",

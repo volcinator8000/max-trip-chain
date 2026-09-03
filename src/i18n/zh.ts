@@ -106,7 +106,7 @@ export const zh: Dict = {
   badge_paid_hint: "该列车正常运行，但没有免费的 MAX 座位，需要付费购票。",
   paid_cta: "没有免费座位 — 查看付费列车",
   set_networks: "欧洲铁路网",
-  set_network_hint: "{country}的列车。会额外加载几 MB 时刻表。",
+  set_network_hint: "{country}的列车。会下载数 MB 时刻表并占用内存 — 建议一次只开启一两个。",
   country_fr: "法国",
   country_de: "德国",
   country_be: "比利时",

@@ -110,7 +110,7 @@ export const en: Dict = {
   badge_paid_hint: "This train runs, but no free MAX seat is available — the ticket costs money.",
   paid_cta: "No free seat — show paid trains",
   set_networks: "European networks",
-  set_network_hint: "Trains in {country}. Adds a few MB of timetables to load.",
+  set_network_hint: "Trains in {country}. Downloads several MB of timetables and uses memory — enable one or two at a time.",
   country_fr: "France",
   country_de: "Germany",
   country_be: "Belgium",
