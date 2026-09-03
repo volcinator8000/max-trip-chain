@@ -112,6 +112,7 @@ export const ja: Dict = {
   country_be: "ベルギー",
   country_lu: "ルクセンブルク",
   country_nl: "オランダ",
+  country_es: "スペイン",
   badge_reserve: "要予約",
   badge_reserve_hint: "定期券で乗車はできますが、座席指定や追加料金は別途必要です。",
   set_passes: "所有する定期券",

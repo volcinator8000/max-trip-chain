@@ -112,6 +112,7 @@ export const de: Dict = {
   country_be: "Belgien",
   country_lu: "Luxemburg",
   country_nl: "Niederlande",
+  country_es: "Spanien",
   badge_reserve: "Reservierung",
   badge_reserve_hint: "Dein Abo deckt die Fahrt, aber Reservierung bzw. Zuschlag kosten extra.",
   set_passes: "Meine Abos",

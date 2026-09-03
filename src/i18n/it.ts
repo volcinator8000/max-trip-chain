@@ -112,6 +112,7 @@ export const it: Dict = {
   country_be: "Belgio",
   country_lu: "Lussemburgo",
   country_nl: "Paesi Bassi",
+  country_es: "Spagna",
   badge_reserve: "Prenotazione",
   badge_reserve_hint: "Il tuo abbonamento copre il viaggio, ma prenotazione o supplemento si pagano a parte.",
   set_passes: "I miei abbonamenti",

@@ -121,6 +121,14 @@ export class StationRegistry {
     this.index.push({ station: s, hay, words: hay.split(/\s+/).filter(Boolean) });
   }
 
+  /** Rebuild the search entry for a station whose aliases changed. */
+  private reindex(s: Station): void {
+    const i = this.index.findIndex((e) => e.station === s);
+    if (i >= 0) this.index.splice(i, 1);
+    const hay = [s.id, s.label, s.city ?? "", ...(s.aliases ?? [])].map(normalizeText).join(" ");
+    this.index.push({ station: s, hay, words: hay.split(/\s+/).filter(Boolean) });
+  }
+
   /** Best city reference matching a station id (whole-word, longest match). */
   private matchCity(id: string): CityInfo | undefined {
     const n = matchNorm(id);
@@ -163,7 +171,9 @@ export class StationRegistry {
    * never seen — a station added here keeps the coordinates the feed gave it instead
    * of being guessed at from a city name, or left off the map entirely.
    */
-  addStations(stations: { id: string; label: string; lat: number; lng: number; country?: string }[]): void {
+  addStations(
+    stations: { id: string; label: string; lat: number; lng: number; country?: string; aliases?: string[] }[],
+  ): void {
     for (const st of stations) {
       if (!st.id) continue;
       this.sourced.add(st.id);
@@ -176,9 +186,24 @@ export class StationRegistry {
           existing.lat = st.lat;
           existing.lng = st.lng;
         }
+        // Merge in any spelling the registry didn't know, and reindex so it is
+        // actually searchable rather than only recorded.
+        const extra = (st.aliases ?? []).filter((a) => !(existing.aliases ?? []).includes(a));
+        if (extra.length) {
+          existing.aliases = [...(existing.aliases ?? []), ...extra];
+          this.reindex(existing);
+        }
         continue;
       }
-      this.add({ id: st.id, label: st.label || prettyLabel(st.id), lat: st.lat, lng: st.lng });
+      this.add({
+        id: st.id,
+        label: st.label || prettyLabel(st.id),
+        lat: st.lat,
+        lng: st.lng,
+        // A station published under one language's name is searchable under the
+        // others too (Leuven/Louvain, Bruxelles-Midi/Brussel-Zuid).
+        ...(st.aliases?.length ? { aliases: st.aliases } : {}),
+      });
     }
   }
 
@@ -230,7 +255,11 @@ export class StationRegistry {
     const prefix: Station[] = [];
     const contains: Station[] = [];
     for (const { station, hay, words } of this.index) {
-      if (isNonBookable(station.id)) continue; // hidden: can't be booked with MAX
+      // Hidden because the MAX pass can't book it — unless an operator that DOES
+      // serve it is switched on and published it, which is what `sourced` records.
+      // `list()` already made this exception; without it here, typing "Brussels"
+      // would find nothing even with the Belgian network enabled.
+      if (!this.sourced.has(station.id) && isNonBookable(station.id)) continue;
       if (words.some((w) => w.startsWith(q))) prefix.push(station);
       else if (hay.includes(q)) contains.push(station);
     }

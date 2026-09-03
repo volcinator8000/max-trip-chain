@@ -112,6 +112,7 @@ export const zh: Dict = {
   country_be: "比利时",
   country_lu: "卢森堡",
   country_nl: "荷兰",
+  country_es: "西班牙",
   badge_reserve: "需订座",
   badge_reserve_hint: "您的通票涵盖此行程，但订座或附加费仍需另付。",
   set_passes: "我的通票",

@@ -25,6 +25,7 @@ public/data/db-fernverkehr/
 public/data/sncb/
 public/data/cfl/
 public/data/ns/
+public/data/renfe/
 
 # Downloaded GTFS archives (up to 200 MB each), cached only to speed up local runs.
 .gtfs-cache/

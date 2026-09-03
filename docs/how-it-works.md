@@ -57,9 +57,9 @@ The app can only apply rules you declare: apart from SNCF, no timetable feed car
 
 ## Trains beyond France (optional)
 
-Settings has switches for **Germany (DB)**, **Belgium (SNCB)**, **Luxembourg (CFL)** and the **Netherlands (NS)**, plus one for **paid SNCF trains**. All are off to start with, because the app is a free-seat finder first — and because each one downloads a few megabytes of timetable.
+Settings has switches for **Germany (DB)**, **Belgium (SNCB)**, **Luxembourg (CFL)**, the **Netherlands (NS)** and **Spain (Renfe)**, plus one for **paid SNCF trains**. All are off to start with, because the app is a free-seat finder first — and because each one downloads a few megabytes of timetable.
 
-Turn one on and its trains join the same search: a Paris → Berlin trip can change at Frankfurt, using an SNCF train for the first half and a German one for the second. Foreign trains are never dressed up as free ones — each carries its operator's name and a "Paid" badge, and its "Book" button goes to that operator's own site, since SNCF Connect cannot sell you a Dutch ticket.
+Turn one on and its trains join the same search: a Paris → Madrid trip can change at Barcelona, using an SNCF train for the first half and a Renfe AVE for the second. Its cities appear in the search boxes as soon as the network is switched on, under either language where a station has two names (Leuven/Louvain, Bruxelles-Midi/Brussel-Zuid). Foreign trains are never dressed up as free ones — each carries its operator's name and a "Paid" badge, and its "Book" button goes to that operator's own site, since SNCF Connect cannot sell you a Dutch ticket.
 
 The timetables come from each country's public open-data feed and are rebuilt with every deploy, exactly like the SNCF snapshot.
 

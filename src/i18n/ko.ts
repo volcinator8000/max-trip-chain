@@ -112,6 +112,7 @@ export const ko: Dict = {
   country_be: "벨기에",
   country_lu: "룩셈부르크",
   country_nl: "네덜란드",
+  country_es: "스페인",
   badge_reserve: "예약 필요",
   badge_reserve_hint: "정기권으로 이동은 되지만 좌석 예약이나 추가 요금은 별도입니다.",
   set_passes: "내 정기권",

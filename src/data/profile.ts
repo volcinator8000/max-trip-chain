@@ -169,6 +169,17 @@ export const NETWORK_PROFILES: DatasetProfile[] = [
     bookingUrl: () => "https://www.mobiliteit.lu/",
   },
   {
+    id: "renfe",
+    operator: "Renfe",
+    country: "ES",
+    shardDir: `${NETWORK_DATA_BASE}renfe/`,
+    stationsUrl: `${NETWORK_DATA_BASE}renfe/stations.json`,
+    hubs: [],
+    nonBookablePatterns: [],
+    bookingUrl: (o, d, date) =>
+      `https://www.renfe.com/es/es/viajar/informacion-util/horarios?origin=${encodeURIComponent(o)}&destination=${encodeURIComponent(d)}&date=${date}`,
+  },
+  {
     id: "ns",
     operator: "NS",
     country: "NL",

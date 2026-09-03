@@ -1,5 +1,5 @@
 import type { Dataset } from "./data/dataset";
-import { StationRegistry } from "./data/stations";
+import { StationRegistry, normalizeText } from "./data/stations";
 import type { SearchQuery, SearchMode, MaxTrain, Journey, SortKey, CalendarDay, StayChoice, CardType } from "./types";
 import { stayNights, stayFromNights } from "./core/roundtrip";
 import {
@@ -641,6 +641,11 @@ export function initApp(root: HTMLElement, dataset: Dataset, registry: StationRe
   // recomputes. A fresh navigation — the first visit, or a shared/deep link opened
   // from elsewhere — still shows results immediately, so shared links keep working.
   rebuild(!(store.urlHasQuery() && isPageReload()));
+  // Foreign stations have to be suggestible from the first keystroke, not only once a
+  // search has already pulled their timetables in. The registries are a few KB each,
+  // so they load right after the first paint and refresh the suggestions in place —
+  // rebuilding the form here would throw away results already on screen.
+  void loadEnabledStations();
   checkWatchedRoutes();
   maybeSuggestLowEnd();
 
@@ -1844,11 +1849,79 @@ function paidNudgeEls(): HTMLElement[] {
   ];
 }
 
+/**
+ * Pull in the station registries of every enabled network, so their cities can be
+ * typed into the search boxes before any of their trains have been fetched.
+ *
+ * Best-effort: a network whose registry is missing simply contributes no extra
+ * suggestions, and its stations still appear once a search loads its trains.
+ */
+async function loadEnabledStations(): Promise<void> {
+  const enabled = NETWORK_PROFILES.filter((p) => settings.networks.includes(p.id));
+  if (enabled.length === 0) return;
+  const lists = await Promise.all(enabled.map((p) => loadSourceStations(p).catch(() => [])));
+  let added = false;
+  for (const list of lists) {
+    if (list.length === 0) continue;
+    deps.registry.addStations(list);
+    added = true;
+  }
+  if (!added) return;
+  labelToId = new Map(deps.registry.list().map((st) => [st.label.toLowerCase(), st.id]));
+  refreshStationList();
+}
+
+/**
+ * Every name to offer in the station suggestions: each station's label, plus any
+ * alternate spelling that is a genuinely different name for it.
+ *
+ * Belgium is why. Its feed publishes French names only, so without this a traveller
+ * in Flanders typing "Leuven" is offered nothing — even though the app would resolve
+ * it correctly if they typed it in full, because the search index knows the alias.
+ * Only clean alternatives are offered: an abbreviation ("Antwerpen C"), a doubled-up
+ * bilingual string, or a spelling already inside the label would just be clutter.
+ */
+function stationSuggestions(): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (name: string): void => {
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) return;
+    seen.add(key);
+    out.push(name);
+  };
+  for (const st of deps.registry.list()) {
+    push(st.label);
+    const label = normalizeText(st.label);
+    for (const alias of st.aliases ?? []) {
+      const a = normalizeText(alias);
+      // Not a new name if the label already says it, and not a useful suggestion if
+      // it is a long run-together of several names.
+      if (!a || a === label || label.includes(a) || a.split(" ").length > 3) continue;
+      push(alias.replace(/\b[a-z]/g, (c) => c.toUpperCase()));
+    }
+  }
+  return out;
+}
+
+/**
+ * Repopulate the shared station datalist from the registry as it stands now.
+ *
+ * Done in place rather than by rebuilding the form: the form owns the results panel,
+ * so re-creating it to add suggestions would wipe whatever the user is looking at.
+ */
+function refreshStationList(): void {
+  const list = document.getElementById("station-list");
+  if (!list) return;
+  list.replaceChildren(...stationSuggestions().map((name) => el("option", { value: name })));
+}
+
 /** Make every station in `trains` searchable, and refresh the label lookup. */
 function registerStations(trains: MaxTrain[]): void {
   if (trains.length === 0) return;
   deps.registry.addMissing(trains.flatMap((t) => [t.origin, t.destination]));
   labelToId = new Map(deps.registry.list().map((st) => [st.label.toLowerCase(), st.id]));
+  refreshStationList();
 }
 
 function runSearch(): void {
@@ -3465,6 +3538,8 @@ function countryName(code: string): string {
       return t("country_lu");
     case "NL":
       return t("country_nl");
+    case "ES":
+      return t("country_es");
     case "FR":
       return t("country_fr");
     default:
@@ -3941,7 +4016,7 @@ function buildLayout(root: HTMLElement): void {
   clear(root);
 
   formApi = createForm({
-    stationLabels: deps.registry.list().map((s) => s.label),
+    stationLabels: stationSuggestions(),
     regions: [...new Set(deps.registry.all().map((s) => s.region).filter((r): r is string => Boolean(r)))].sort(),
     today,
     bookingWindowDays: BOOKING_WINDOW_DAYS,

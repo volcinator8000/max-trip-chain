@@ -112,6 +112,7 @@ export const es: Dict = {
   country_be: "Bélgica",
   country_lu: "Luxemburgo",
   country_nl: "Países Bajos",
+  country_es: "España",
   badge_reserve: "Reserva",
   badge_reserve_hint: "Tu abono cubre este trayecto, pero la reserva de plaza o el suplemento se pagan aparte.",
   set_passes: "Mis abonos",

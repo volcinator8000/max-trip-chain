@@ -116,6 +116,7 @@ export const en: Dict = {
   country_be: "Belgium",
   country_lu: "Luxembourg",
   country_nl: "Netherlands",
+  country_es: "Spain",
   badge_reserve: "Reservation",
   badge_reserve_hint: "Your pass covers this journey, but a seat reservation or supplement still costs extra.",
   set_passes: "My subscriptions",

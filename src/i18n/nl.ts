@@ -112,6 +112,7 @@ export const nl: Dict = {
   country_be: "België",
   country_lu: "Luxemburg",
   country_nl: "Nederland",
+  country_es: "Spanje",
   badge_reserve: "Reservering",
   badge_reserve_hint: "Je abonnement dekt de reis, maar een reservering of toeslag kost extra.",
   set_passes: "Mijn abonnementen",

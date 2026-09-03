@@ -78,7 +78,7 @@ canonical id wherever SNCF also serves the station.
 
 ## Still open
 
-- **Spain (Renfe) and Italy (Trenitalia)** — no equivalent open feed found yet.
+- **Italy (Trenitalia), Switzerland, Austria** — no equivalent open feed wired up yet. (Spain shipped: Renfe's long-distance GTFS is open and is the lightest network of the lot.)
 - **Great Britain** — the Belgian feed lists London St Pancras, but its Eurostar
   services carry no future dates, so GB is effectively absent. Domestic GB timetables
   need Rail Data Marketplace credentials, which a fork can add as a repo secret.

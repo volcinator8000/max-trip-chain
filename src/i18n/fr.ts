@@ -114,6 +114,7 @@ export const fr = {
   country_be: "Belgique",
   country_lu: "Luxembourg",
   country_nl: "Pays-Bas",
+  country_es: "Espagne",
   badge_reserve: "Réservation",
   badge_reserve_hint: "Votre abonnement couvre ce trajet, mais une réservation ou un supplément reste payant.",
   set_passes: "Mes abonnements",

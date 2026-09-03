@@ -112,6 +112,7 @@ export const pt: Dict = {
   country_be: "Bélgica",
   country_lu: "Luxemburgo",
   country_nl: "Países Baixos",
+  country_es: "Espanha",
   badge_reserve: "Reserva",
   badge_reserve_hint: "O seu passe cobre a viagem, mas a reserva de lugar ou suplemento pagam-se à parte.",
   set_passes: "Os meus passes",

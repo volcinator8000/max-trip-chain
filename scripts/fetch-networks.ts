@@ -99,6 +99,16 @@ const NETWORKS: Network[] = [
     routeTypes: RAIL_TYPES,
   },
   {
+    id: "renfe",
+    operator: "Renfe",
+    country: "ES",
+    source: "Renfe — GTFS Alta Velocidad y Larga Distancia (open data)",
+    url: "https://ssl.renfe.com/gtransit/Fichero_AV_LD/google_transit.zip",
+    // The lightest feed of the lot (~34 KB a day gzipped), so it can afford a wider
+    // list than the dense commuter networks.
+    topStations: 85,
+  },
+  {
     id: "ns",
     operator: "NS",
     country: "NL",
@@ -138,6 +148,8 @@ const CACHE_DIR = path.resolve(REPO_ROOT, ".gtfs-cache");
 const WINDOW_DAYS = 30;
 /** Ignore absurd legs (bad data, or a pair that is really two separate services). */
 const MAX_LEG_MIN = 24 * 60;
+/** Extra ranking weight for each trip that starts or ends at a station. */
+const TERMINUS_WEIGHT = 4;
 /** How many of a network's busiest stations to publish as interchange hubs. */
 const HUBS_PER_NETWORK = 12;
 
@@ -441,13 +453,24 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
     list.sort((a, b) => a.seq - b.seq);
     // Count each station once per trip, not once per call.
     const seen = new Set<string>();
-    for (const s of list) {
+    const idOf = (s: TripStop): string | null => {
       const info = stops.get(s.stopId);
-      if (!info) continue;
-      const id = canonicalStationId(bestName(info), cw.byName);
-      if (seen.has(id)) continue;
+      return info ? canonicalStationId(bestName(info), cw.byName) : null;
+    };
+    for (const s of list) {
+      const id = idOf(s);
+      if (!id || seen.has(id)) continue;
       seen.add(id);
       callCount.set(id, (callCount.get(id) ?? 0) + 1);
+    }
+    // Where a trip STARTS or ENDS counts for more than a station it merely passes
+    // through. Ranking on calls alone favours small stops on a busy corridor over the
+    // city terminals a traveller actually searches for — on the Spanish feed it kept
+    // Sils and Flaçà while dropping Málaga and Bilbao.
+    for (const s of [list[0], list[list.length - 1]]) {
+      if (!s) continue;
+      const id = idOf(s);
+      if (id) callCount.set(id, (callCount.get(id) ?? 0) + TERMINUS_WEIGHT);
     }
   }
 
@@ -485,11 +508,25 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
   }
 
   // Coordinates for every allowlisted station, so foreign results reach the map.
-  const stationOut = new Map<string, { id: string; label: string; lat: number; lng: number; country: string }>();
+  // Every OTHER spelling the crosswalk knows for a canonical id, so the app can offer
+  // a station under either language's name. Belgium is the reason: its feed publishes
+  // French names only, and a traveller in Flanders types "Leuven", not "Louvain".
+  const aliasesById = new Map<string, string[]>();
+  for (const [name, id] of cw.byName) {
+    const list = aliasesById.get(id);
+    if (list) list.push(name);
+    else aliasesById.set(id, [name]);
+  }
+
+  const stationOut = new Map<
+    string,
+    { id: string; label: string; lat: number; lng: number; country: string; aliases?: string[] }
+  >();
   for (const info of stops.values()) {
     const name = bestName(info);
     const id = canonicalStationId(name, cw.byName);
     if (!allow.has(id) || stationOut.has(id)) continue;
+    const aliases = aliasesById.get(id) ?? [];
     stationOut.set(id, {
       id,
       // Drop the country tag from the display label — the country field carries it.
@@ -497,6 +534,7 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
       lat: info.lat,
       lng: info.lon,
       country: net.country,
+      ...(aliases.length ? { aliases } : {}),
     });
   }
 

@@ -112,6 +112,7 @@ export const ar: Dict = {
   country_be: "بلجيكا",
   country_lu: "لوكسمبورغ",
   country_nl: "هولندا",
+  country_es: "إسبانيا",
   badge_reserve: "يلزم الحجز",
   badge_reserve_hint: "اشتراكك يغطي هذه الرحلة، لكن حجز المقعد أو الرسوم الإضافية تُدفع بشكل منفصل.",
   set_passes: "اشتراكاتي",
