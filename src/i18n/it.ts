@@ -176,6 +176,7 @@ export const it: Dict = {
   cal_legend_nearby_both: "viola = stazioni vicine a entrambi i capi",
   cal_available: "disponibile",
   cal_unavailable: "non disponibile",
+  cal_unchecked: "Non verificato — gli orari esteri di questo giorno non sono caricati",
   link_newtab: "(nuova scheda)",
   rt_outbound: "Andata",
   rt_inbound: "Ritorno",

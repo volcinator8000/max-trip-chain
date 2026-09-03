@@ -181,6 +181,7 @@ export const fr = {
   cal_legend_nearby_both: "violet = gares voisines aux deux bouts",
   cal_available: "disponible",
   cal_unavailable: "indisponible",
+  cal_unchecked: "Non vérifié — réseau étranger non chargé pour ce jour",
   link_newtab: "(nouvel onglet)",
 
   rt_outbound: "Aller",

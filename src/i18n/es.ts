@@ -176,6 +176,7 @@ export const es: Dict = {
   cal_legend_nearby_both: "violeta = estaciones cercanas en ambos extremos",
   cal_available: "disponible",
   cal_unavailable: "no disponible",
+  cal_unchecked: "Sin comprobar: los horarios extranjeros de este día no están cargados",
   link_newtab: "(nueva pestaña)",
   rt_outbound: "Ida",
   rt_inbound: "Vuelta",

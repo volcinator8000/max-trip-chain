@@ -6,7 +6,7 @@
 import type { MaxTrain, SearchQuery } from "../types";
 import { loadDataset } from "../data/dataset";
 import { NETWORK_PROFILES, SNCF_PROFILE, type DatasetProfile } from "../data/profile";
-import { activeHubs, buildPool, datesForQuery, loadAllExtraTrains } from "../data/sources";
+import { activeHubs, buildPool, resultDates, calendarDates, loadAllExtraTrains } from "../data/sources";
 import { heldPasses, type RouteBinding } from "../data/passes";
 import { setDefaultHubs } from "../core/connections";
 import { HUB_STATIONS } from "../config";
@@ -66,7 +66,7 @@ async function poolFor(
     setDefaultHubs(HUB_STATIONS);
     return trains;
   }
-  const dates = datesForQuery(query, today);
+  const dates = resultDates(query, today);
   // The key must fold in the passes as well as the dates: they decide which trains
   // are usable, so a pool built under different passes is a different pool.
   const passKey = passes
@@ -75,7 +75,7 @@ async function poolFor(
     .join(",");
   const key = `${sources.map((s) => s.id).join("+")}|${passKey}|${includePaid ? "paid" : "covered"}|${dates.join(",")}`;
   if (key !== extraKey) {
-    const extra = await loadAllExtraTrains(sources, dates);
+    const extra = await loadAllExtraTrains(sources, dates, calendarDates(today));
     // No shards at all means the page won't have them either, so warming the
     // free-only pool would misrepresent the search.
     if (extra.length === 0) return null;

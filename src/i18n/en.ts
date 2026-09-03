@@ -183,6 +183,7 @@ export const en: Dict = {
   cal_legend_nearby_both: "purple = nearby start + end",
   cal_available: "available",
   cal_unavailable: "unavailable",
+  cal_unchecked: "Not checked — this day's foreign timetables aren't loaded",
   link_newtab: "(opens in new tab)",
 
   rt_outbound: "Outbound",

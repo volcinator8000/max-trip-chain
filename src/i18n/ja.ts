@@ -176,6 +176,7 @@ export const ja: Dict = {
   cal_legend_nearby_both: "紫 = 両端とも近隣駅",
   cal_available: "空きあり",
   cal_unavailable: "空きなし",
+  cal_unchecked: "未確認 — この日の海外の時刻表は読み込まれていません",
   link_newtab: "（新しいタブ）",
   rt_outbound: "往路",
   rt_inbound: "復路",

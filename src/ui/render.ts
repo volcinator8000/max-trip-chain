@@ -1055,6 +1055,9 @@ export function calendarEl(
     // section's class and would leak its margin onto the cells.
     const nearby = !neutral && !d.available && Boolean(d.nearby);
     const both = !neutral && !d.available && !d.nearby && Boolean(d.nearbyBoth);
+    // Judged without an enabled network's timetables: empty here means "not checked",
+    // and must not be shown in the same red as a day genuinely without a train.
+    const unchecked = !neutral && !d.available && !nearby && !both && Boolean(d.partial);
     if (nearby) anyNearby = true;
     if (both) anyBoth = true;
     const state = neutral
@@ -1065,7 +1068,9 @@ export function calendarEl(
           ? "near"
           : both
             ? "near-both"
-            : "no";
+            : unchecked
+              ? "unchecked"
+              : "no";
     const status = neutral
       ? ctx.formatDate(d.date)
       : d.available
@@ -1074,7 +1079,9 @@ export function calendarEl(
           ? t("cal_nearby")
           : both
             ? t("cal_nearby_both")
-            : t("cal_unavailable");
+            : unchecked
+              ? t("cal_unchecked")
+              : t("cal_unavailable");
     // A neutral cell is just a tappable day — its label is the date alone (no "— status").
     const label = neutral
       ? ctx.formatDate(d.date)

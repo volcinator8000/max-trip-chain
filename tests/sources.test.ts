@@ -1,7 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { MaxTrain, SearchQuery } from "../src/types";
 import { encodeShard, decodeShard, SHARD_VERSION, type EncodableTrain } from "../src/data/shard";
-import { datesForQuery, loadExtraTrains, buildPool, resetSources, BOOKING_WINDOW_DAYS } from "../src/data/sources";
+import {
+  resultDates,
+  calendarDates,
+  datesLoaded,
+  loadExtraTrains,
+  buildPool,
+  resetSources,
+  BOOKING_WINDOW_DAYS,
+} from "../src/data/sources";
 import { heldPasses } from "../src/data/passes";
 import type { DatasetProfile } from "../src/data/profile";
 import { filterTrains } from "../src/core/search";
@@ -70,34 +78,52 @@ describe("shard codec", () => {
   });
 });
 
-describe("datesForQuery", () => {
+describe("resultDates", () => {
   const base: SearchQuery = { mode: "od", date: "2026-07-01", card: "jeune", maxConnections: 1 };
 
-  it("covers the whole booking window, because every mode draws a 30-day calendar", () => {
-    const dates = datesForQuery(base, "2026-07-01");
+  it("loads only the days the results span, not the whole booking window", () => {
+    // The whole point: one Belgian day decodes to ~99k trains and ~25 MB of heap, so
+    // eagerly loading 30 of them (times several networks) exhausts memory.
+    const dates = resultDates(base, "2026-07-01");
+    expect(dates.length).toBeLessThan(BOOKING_WINDOW_DAYS);
+    expect(dates).toContain("2026-07-01");
+    // The following day comes too: a journey can run past midnight or wait at a hub.
+    expect(dates).toContain("2026-07-02");
+  });
+
+  it("covers the flexible-date sweep around the chosen day", () => {
+    const dates = resultDates({ ...base, flexDays: 2 }, "2026-07-01");
+    for (const d of ["2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03"]) {
+      expect(dates).toContain(d);
+    }
+  });
+
+  it("covers a return, a tour end and every multi-city leg", () => {
+    const dates = resultDates(
+      { ...base, returnDate: "2026-07-05", tourEndDate: "2026-07-09", legs: [{ from: "A", to: "B", date: "2026-08-20" }] },
+      "2026-07-01",
+    );
+    for (const d of ["2026-07-05", "2026-07-09", "2026-08-20"]) expect(dates).toContain(d);
+  });
+
+  it("widens with the trip-span setting, which lets a journey wait days at a hub", () => {
+    const dates = resultDates({ ...base, maxSpanDays: 4 }, "2026-07-01");
+    for (const d of ["2026-07-02", "2026-07-03", "2026-07-04"]) expect(dates).toContain(d);
+  });
+
+  it("returns ascending dates with no duplicates", () => {
+    const dates = resultDates({ ...base, flexDays: 3, returnDate: "2026-07-02" }, "2026-07-01");
+    expect(new Set(dates).size).toBe(dates.length);
+    expect([...dates].sort()).toEqual(dates);
+  });
+});
+
+describe("calendarDates", () => {
+  it("is the whole booking window — what the calendars sweep", () => {
+    const dates = calendarDates("2026-07-01");
     expect(dates).toHaveLength(BOOKING_WINDOW_DAYS);
     expect(dates[0]).toBe("2026-07-01");
     expect(dates[BOOKING_WINDOW_DAYS - 1]).toBe("2026-07-30");
-  });
-
-  it("adds chosen days that fall outside the window, and never duplicates", () => {
-    const dates = datesForQuery(
-      { ...base, date: "2026-06-20", returnDate: "2026-07-05", tourEndDate: "2026-09-01" },
-      "2026-07-01",
-    );
-    expect(dates).toContain("2026-06-20"); // before the window
-    expect(dates).toContain("2026-09-01"); // beyond it
-    expect(dates).toContain("2026-07-05"); // inside — must not appear twice
-    expect(new Set(dates).size).toBe(dates.length);
-    expect([...dates].sort()).toEqual(dates); // ascending
-  });
-
-  it("includes each multi-city leg's date", () => {
-    const dates = datesForQuery(
-      { ...base, mode: "tour", legs: [{ from: "A", to: "B", date: "2026-08-20" }] },
-      "2026-07-01",
-    );
-    expect(dates).toContain("2026-08-20");
   });
 });
 
@@ -241,6 +267,40 @@ describe("loadExtraTrains", () => {
       .map((c) => String(c[0]))
       .filter((u) => u.endsWith("2026-07-01.json"));
     expect(shardCalls).toHaveLength(1);
+  });
+
+  it("keeps the decoded-day cache bounded, so browsing the calendar can't exhaust memory", async () => {
+    // More days than the cache can hold. The limit is deliberately above a full
+    // booking window, so that a small full-window source keeps its whole month while
+    // a heavy per-day one still gets bounded.
+    const days = Array.from({ length: 50 }, (_, i) => {
+      const d = new Date(Date.UTC(2026, 6, 1) + i * 86_400_000);
+      return d.toISOString().slice(0, 10);
+    });
+    const bodies: Record<string, unknown> = {
+      "/data/demo/index.json": { v: 1, days: days.map((date) => ({ date, count: 3 })) },
+    };
+    for (const d of days) bodies[`/data/demo/${d}.json`] = encodeShard(d, rows, META);
+    serve(bodies);
+    for (const d of days) await loadExtraTrains(profile, [d]);
+    // Far fewer than the 20 requested are still held.
+    const still = datesLoaded(["demo"], days);
+    expect(still.size).toBeLessThan(days.length);
+    expect(still.size).toBeGreaterThan(0);
+    // And it is the most recent days that survived, not the first ones.
+    expect(still.has(days[days.length - 1] as string)).toBe(true);
+    expect(still.has(days[0] as string)).toBe(false);
+  });
+
+  it("reports which days are loaded, so the calendar can admit what it hasn't checked", async () => {
+    serve({
+      "/data/demo/index.json": { v: 1, days: [{ date: "2026-07-01", count: 3 }] },
+      "/data/demo/2026-07-01.json": encodeShard("2026-07-01", rows, META),
+    });
+    await loadExtraTrains(profile, ["2026-07-01"]);
+    const loaded = datesLoaded(["demo"], ["2026-07-01", "2026-07-02"]);
+    expect(loaded.has("2026-07-01")).toBe(true);
+    expect(loaded.has("2026-07-02")).toBe(false);
   });
 
   it("degrades to no extra trains when the index is missing", async () => {

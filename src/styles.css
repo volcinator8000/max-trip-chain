@@ -1790,6 +1790,14 @@ a {
   font-weight: 640;
   font-variant-numeric: tabular-nums;
 }
+/* A calendar day judged without an enabled network's timetables: not "nothing runs",
+   just "not looked at". Deliberately neutral grey rather than the unavailable red, so
+   it never reads as a definite no — tapping it loads that day and answers properly. */
+.cal-cell.unchecked {
+  background: var(--surface-2);
+  color: var(--muted);
+  border-style: dashed;
+}
 /* Paid train: runs, but no free MAX seat. Amber rather than the accent green, so a
    paid result can never be skimmed as a free one — this is the whole point of the
    badge. Same amber family as the one-change chip, which already reads as "caveat". */

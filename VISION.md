@@ -78,17 +78,22 @@ canonical id wherever SNCF also serves the station.
 
 ## Still open
 
+- **Minor-to-minor legs.** Every station a feed serves is carried, but only joined to
+  its network's major stations and hubs; a leg between two small halts on the same
+  rural line is not emitted. All-pairs over the full Belgian list is 10.5M legs a
+  month (~2 MB gzipped a day), which is why.
 - **Italy (Trenitalia), Switzerland, Austria** — no equivalent open feed wired up yet. (Spain shipped: Renfe's long-distance GTFS is open and is the lightest network of the lot.)
 - **Great Britain** — the Belgian feed lists London St Pancras, but its Eurostar
   services carry no future dates, so GB is effectively absent. Domestic GB timetables
   need Rail Data Marketplace credentials, which a fork can add as a repo secret.
-- **Payload and memory.** Each network costs roughly 2-7 MB gzipped for a whole
-  30-day window, because every mode draws a 30-day calendar — and once decoded, all
-  four networks together are on the order of three million train objects, which is
-  far too much for a phone. Today's mitigations are that networks are opt-in and that
-  the search worker is skipped while one is on (so only one copy of the pool exists).
-  The real fix is progressive loading: fetch the chosen day, render, then fill the
-  calendar in behind it, holding only the days actually in view.
+- **Memory, now bounded rather than solved.** A single Belgian day decodes to ~99k
+  trains and ~25 MB of heap, so the booking window for Belgium and the Netherlands
+  together would be roughly 1.5 GB. Foreign networks therefore load only the days a
+  search's results span, with an LRU over decoded days, and their calendars mark
+  days they have not checked instead of claiming nothing runs. A search sits around
+  140 MB. What remains open is making an unchecked calendar day answerable without
+  loading its whole timetable — a per-route day bitmap in each shard index would do
+  it far more cheaply than the trains themselves.
 - **Changing at a city aggregate.** `MIN_CONNECTION_MIN` is 15 minutes, applied to
   `PARIS (intramuros)` as if it were one station. A Belgian arrival at Nord and a
   German departure from Est 20 minutes later will be offered as a valid change. This

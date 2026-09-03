@@ -49,7 +49,15 @@ import {
 } from "./config";
 import { filterOptsFor, odConnOptsFor, odJourneyOptsFor, getawayOptsFor } from "./core/queryOpts";
 import { warmSearch } from "./search/searchClient";
-import { activeHubs, buildPool, datesForQuery, loadAllExtraTrains, loadSourceStations } from "./data/sources";
+import {
+  activeHubs,
+  buildPool,
+  resultDates,
+  calendarDates,
+  datesLoaded,
+  loadAllExtraTrains,
+  loadSourceStations,
+} from "./data/sources";
 import { heldPasses, SELECTABLE_PASSES } from "./data/passes";
 import { NETWORK_PROFILES, SNCF_PROFILE, profileById, type DatasetProfile } from "./data/profile";
 import { setDefaultHubs } from "./core/connections";
@@ -1513,7 +1521,24 @@ function repaintFormCalendar(): void {
   if (rangeOpt && calOpts) {
     calOpts = { ...calOpts, range: rangeOpt, hint: t("form_cal_flex_hint") };
   }
-  mount.append(render.calendarEl(cal, calCtx, selected, calOpts));
+  mount.append(render.calendarEl(markUnchecked(cal), calCtx, selected, calOpts));
+}
+
+/**
+ * Flag calendar days that were judged without a foreign network's timetables.
+ *
+ * Only days that came out EMPTY are flagged: a day already found available is right
+ * whatever else runs. An empty day, though, may just be one whose shards aren't
+ * loaded — and saying "nothing runs" there would be a lie told to save memory.
+ */
+function markUnchecked(cal: CalendarDay[]): CalendarDay[] {
+  const sources = activeSources().filter((p) => p.shardDir && !p.fullWindow);
+  if (sources.length === 0) return cal;
+  const loaded = datesLoaded(
+    sources.map((p) => p.id),
+    cal.map((d) => d.date),
+  );
+  return cal.map((d) => (d.available || loaded.has(d.date) ? d : { ...d, partial: true }));
 }
 
 /**
@@ -1780,7 +1805,8 @@ function preparePool(): Promise<void> | null {
     setDefaultHubs(HUB_STATIONS);
     return null;
   }
-  const dates = datesForQuery(query, today);
+  const dates = resultDates(query, today);
+  const window = calendarDates(today);
   const key = `${sources.map((s) => s.id).join("+")}|${passKey()}|${dates.join(",")}`;
   const pool = (extra: MaxTrain[]): MaxTrain[] =>
     buildPool({
@@ -1806,7 +1832,7 @@ function preparePool(): Promise<void> | null {
     return null;
   }
   return Promise.all([
-    loadAllExtraTrains(sources, dates),
+    loadAllExtraTrains(sources, dates, window),
     // Coordinates for the foreign stations, so their results reach the map instead of
     // silently dropping off it.
     Promise.all(sources.map((p) => loadSourceStations(p).catch(() => []))),
@@ -2455,7 +2481,7 @@ function runMultiCity(c: RenderCtx): void {
     // handy when you left the date blank. Clicking a day sets it and re-runs.
     const legCal = availabilityCalendar(trains, leg.from, leg.to, windowDates, opts);
     const legCtx: RenderCtx = { ...c, onSelectDay: (d) => setLegDate(i, d) };
-    const calEl = journeys.length ? render.calendarEl(legCal, legCtx, leg.date) : null;
+    const calEl = journeys.length ? render.calendarEl(markUnchecked(legCal), legCtx, leg.date) : null;
     if (calEl) sec.append(calEl);
     const cards: HTMLElement[] = [];
     if (journeys.length === 0) sec.append(render.emptyEl(t("res_none")));
@@ -2726,7 +2752,7 @@ function runOdSearch(c: RenderCtx): void {
   // availability, mirroring the round-trip outbound calendar's collapse pattern.
   // Opened from an Ideas one-way tap → show the days you can go up front (calendar open);
   // otherwise it's collapsed behind a one-tap "Départ : … · Changer" summary as usual.
-  const odCal = render.collapsibleCalendar(render.calendarEl(cal, c, query.date), "cal-collapsible", openOdCalendar);
+  const odCal = render.collapsibleCalendar(render.calendarEl(markUnchecked(cal), c, query.date), "cal-collapsible", openOdCalendar);
   openOdCalendar = false;
   odCal.setLabel(t("outbound_change", { date: formatDate(query.date) }));
   refs.results.append(odCal.host);
@@ -3108,7 +3134,7 @@ function runTripSearch(c: RenderCtx): void {
     const refocus = retCalHost.contains(document.activeElement);
     clear(retCalHost);
     retCalHost.append(
-      render.calendarEl(retCal, retCtx, retDate, {
+      render.calendarEl(markUnchecked(retCal), retCtx, retDate, {
         title: t("rt_inbound"),
         // First cell is same-day (hours on site); every later cell is nights away.
         count: (n, day) => (day.date === query.date ? t("daytrip_cal_hours", { h: n }) : t("getaway_nights", { n })),
@@ -3205,7 +3231,7 @@ function runTripSearch(c: RenderCtx): void {
     refreshInPlace();
   };
   const outCalCtx: RenderCtx = { ...c, onSelectDay: onOutboundDay };
-  const outCalEl = render.calendarEl(outCal, outCalCtx, query.date, {
+  const outCalEl = render.calendarEl(markUnchecked(outCal), outCalCtx, query.date, {
     title: t("getaway_cal_title"),
     count: (n) => (isSameDayTrip ? t("daytrip_cal_hours", { h: n }) : t("getaway_nights", { n })),
     countLegend: isSameDayTrip ? t("cal_legend_hours") : t("cal_legend_nights"),

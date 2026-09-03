@@ -49,8 +49,44 @@ interface SourceIndex {
 const indexCache = new Map<string, Promise<SourceIndex | null>>();
 /** Hubs of every source loaded so far, so connection search can change trains there. */
 const loadedHubs = new Map<string, string[]>();
-/** Per-source-and-date decoded shards, so a day is fetched at most once a session. */
+/**
+ * Decoded shards, keyed by source and date. A `Map` keeps insertion order, which is
+ * what makes the eviction below a genuine LRU.
+ *
+ * Bounded on purpose: a day of Belgian or Dutch trains is ~25 MB of heap, so an
+ * unbounded cache would grow into a browser tab crash as the user moves around the
+ * calendar. Entries are re-fetched if wanted again, which is cheap next to that.
+ */
 const shardCache = new Map<string, Promise<MaxTrain[]>>();
+/**
+ * How many decoded days to keep. Sized so the heaviest networks stay survivable, but
+ * large enough that a full-window source (SNCF's paid trains) holds its whole month
+ * plus a few days of a foreign network alongside it.
+ */
+let cacheLimit = BOOKING_WINDOW_DAYS + 8;
+
+/** Drop least-recently-used days once the cache is over its limit. */
+function evictShards(): void {
+  while (shardCache.size > cacheLimit) {
+    const oldest = shardCache.keys().next();
+    if (oldest.done) return;
+    shardCache.delete(oldest.value);
+  }
+}
+
+/** Dates of `wanted` this source has decoded and still holds. */
+export function datesLoaded(sourceIds: string[], dates: string[]): Set<string> {
+  const loaded = new Set<string>();
+  for (const date of dates) {
+    if (sourceIds.every((id) => shardCache.has(`${id}|${date}`))) loaded.add(date);
+  }
+  return loaded;
+}
+
+/** The cache limit, raised so a full-window source can't evict its own days. */
+export function setShardCacheLimit(n: number): void {
+  cacheLimit = Math.max(BOOKING_WINDOW_DAYS + 4, n);
+}
 
 async function fetchJson<T>(url: string): Promise<T | null> {
   try {
@@ -113,13 +149,19 @@ export function activeHubs(baseHubs: string[]): string[] {
 function loadShard(profile: DatasetProfile, date: string): Promise<MaxTrain[]> {
   const key = `${profile.id}|${date}`;
   const cached = shardCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    // Re-insert so recently used days survive eviction.
+    shardCache.delete(key);
+    shardCache.set(key, cached);
+    return cached;
+  }
   const p = fetchJson<unknown>(`${profile.shardDir ?? ""}${date}.json`).then((raw) => {
     const trains = decodeShard(raw);
     for (const t of trains) t.available = true;
     return trains;
   });
   shardCache.set(key, p);
+  evictShards();
   return p;
 }
 
@@ -143,9 +185,17 @@ export async function loadExtraTrains(profile: DatasetProfile, dates: string[]):
  * A source that fails contributes nothing instead of failing the search — one network
  * being down should cost you that network, not the trip.
  */
-export async function loadAllExtraTrains(profiles: DatasetProfile[], dates: string[]): Promise<MaxTrain[]> {
+export async function loadAllExtraTrains(
+  profiles: DatasetProfile[],
+  dates: string[],
+  windowDates: string[] = dates,
+): Promise<MaxTrain[]> {
   const results = await Promise.all(
-    profiles.map((p) => loadExtraTrains(p, dates).catch(() => [] as MaxTrain[])),
+    profiles.map((p) =>
+      // A small source is loaded across the whole window so its calendars stay
+      // complete; a heavy one only for the days the results span.
+      loadExtraTrains(p, p.fullWindow ? windowDates : dates).catch(() => [] as MaxTrain[]),
+    ),
   );
   return results.flat();
 }
@@ -162,23 +212,49 @@ export async function loadSourceStations(
 }
 
 /**
- * The dates a search can touch: the whole booking window, because every mode draws a
- * 30-day availability calendar over it, plus any explicitly chosen day that falls
- * outside (a deep-linked past date, a return, a tour end).
+ * The dates a search's RESULTS need — not the whole booking window.
  *
- * Deliberately the whole window rather than just the chosen day — a calendar that
- * showed paid days only for the date already selected would be worse than useless.
+ * This distinction is the difference between working and running out of memory. A
+ * single Belgian day decodes to ~99k trains and ~25 MB of heap; the 30-day window for
+ * Belgium and the Netherlands together would be about 1.5 GB. The results a user is
+ * actually looking at span the chosen day and its immediate neighbours, so that is
+ * what gets loaded. The 30-day calendar is handled separately: days whose shards
+ * aren't loaded are drawn as "not checked" rather than as "nothing runs" (see
+ * {@link datesLoaded}).
  */
-export function datesForQuery(query: SearchQuery, today: string): string[] {
+export function resultDates(query: SearchQuery, today: string): string[] {
   const dates = new Set<string>();
-  for (let i = 0; i < BOOKING_WINDOW_DAYS; i++) dates.add(addDays(today, i));
-  for (const d of [query.date, query.returnDate, query.tourEndDate]) {
+  const add = (d: string | undefined): void => {
     if (d) dates.add(d);
+  };
+  add(query.date);
+  add(query.returnDate);
+  add(query.tourEndDate);
+  for (const leg of query.legs ?? []) add(leg.date);
+  // Flexible dates sweep ±N days around the chosen one.
+  const flex = query.flexDays ?? 0;
+  for (let i = -flex; i <= flex; i++) add(addDays(query.date, i));
+  // A journey may run past midnight, or wait overnight at a hub across several days,
+  // so the days after each chosen one are part of the same result.
+  const span = Math.max(2, Math.floor(query.maxSpanDays ?? 2));
+  for (const d of [...dates]) {
+    for (let i = 1; i < span; i++) add(addDays(d, i));
   }
-  for (const leg of query.legs ?? []) {
-    if (leg.date) dates.add(leg.date);
-  }
+  // A round trip's return can be any day of the window, so the return calendar needs
+  // its own days — but only once the user has picked an outbound.
+  if (query.stay && query.returnDate) add(addDays(query.returnDate, 1));
+  add(today);
   return [...dates].sort();
+}
+
+/**
+ * Every day of the booking window — what the availability calendars sweep. Only the
+ * SNCF snapshot can answer for all of these, because it is loaded whole.
+ */
+export function calendarDates(today: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < BOOKING_WINDOW_DAYS; i++) out.push(addDays(today, i));
+  return out;
 }
 
 // ---------------------------------------------------------------------------

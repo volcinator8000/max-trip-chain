@@ -41,6 +41,17 @@ export interface DatasetProfile {
    * network publishes all of its trains here, since none are MAX-free.
    */
   shardDir?: string;
+  /**
+   * Load this source's shards for the WHOLE booking window rather than just the days
+   * a search's results span.
+   *
+   * Only for sources small enough to afford it. SNCF's paid trains are ~10k a day, so
+   * the full month costs about 40 MB of heap and keeps every availability calendar
+   * complete. A foreign network is ten times that per day — Belgium's month alone
+   * would be some 750 MB — so those load day by day, and their calendars say which
+   * days they haven't checked.
+   */
+  fullWindow?: boolean;
   /** Upstream open-data API (optional; used by the data-refresh script). */
   apiUrl?: string;
   /** Pull the core fields out of one raw record — only for sources with a snapshot. */
@@ -107,6 +118,7 @@ export const SNCF_PROFILE: DatasetProfile = {
   dataUrl: DATA_URL,
   metaUrl: META_URL,
   shardDir: PAID_SHARD_DIR,
+  fullWindow: true,
   apiUrl: SNCF_API_URL,
   read: (r) => ({
     origin: str(r.origine),

@@ -63,6 +63,8 @@ Turn one on and its trains join the same search: a Paris → Madrid trip can cha
 
 The timetables come from each country's public open-data feed and are rebuilt with every deploy, exactly like the SNCF snapshot.
 
+One difference you will see: a foreign country's timetables are fetched **a day at a time**, because a month of Belgian or Dutch services is more than a phone can hold. So on the 30-day calendar, days that haven't been fetched are drawn greyed and dashed — "not checked", not "nothing runs". Tap one and it loads. The French calendar is never like this: the SNCF snapshot is small enough to hold whole.
+
 ## How it runs for free, forever — no server, no account
 
 Here's the part that keeps it truly free: **there is no back-end and no login.** MAX Finder is just a bundle of ordinary files — a web page, some code, and that daily data file — parked on **GitHub Pages**, GitHub's free static-file hosting.

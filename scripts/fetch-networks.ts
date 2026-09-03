@@ -85,8 +85,8 @@ const NETWORKS: Network[] = [
     country: "BE",
     source: "iRail / NMBS-SNCB GTFS (Licence Ouverte)",
     url: "https://gtfs.irail.be/nmbs/gtfs/latest.zip",
-    // Belgium runs a dense clock-face service over a small area, so all-pairs grows
-    // fast here: a wider list costs far more per day than it does in Germany.
+    // Belgium runs a dense clock-face service over a small area, so pairs between
+    // major stations grow fast here.
     topStations: 32,
   },
   {
@@ -338,6 +338,7 @@ interface TripStop {
 interface ConvertStats {
   trips: number;
   stations: number;
+  major: number;
   pairs: number;
   days: number;
   bytes: number;
@@ -474,14 +475,30 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
     }
   }
 
-  // --- the allowlist -----------------------------------------------------------
-  // Busiest stations, plus every crosswalk interchange this feed actually serves —
-  // those are the whole point of the exercise and must never be ranked out.
+  // --- ranking -----------------------------------------------------------------
+  // "Major" stations get connected to each other directly; every OTHER station is
+  // still carried, but only joined to this network's hubs (see the emit loop). That
+  // is what lets a small halt like Vielsalm be searchable without the quadratic blow-up
+  // of joining every rural stop to every other one: all-pairs over the full Belgian
+  // list is 10.5M legs a month, ~2 MB gzipped PER DAY.
   const ranked = [...callCount.entries()].sort((a, b) => b[1] - a[1]);
-  const allow = new Set(ranked.slice(0, net.topStations).map(([id]) => id));
+  const major = new Set(ranked.slice(0, net.topStations).map(([id]) => id));
+  const crosswalkIds = new Set(cw.byName.values());
   for (const id of callCount.keys()) {
-    if ([...cw.byName.values()].includes(id)) allow.add(id);
+    // Crosswalk interchanges are the whole point of the exercise and must never be
+    // ranked out — a quiet border station still joins two countries.
+    if (crosswalkIds.has(id)) major.add(id);
   }
+  // The network's interchanges, published with the data rather than hardcoded in the
+  // app: the connection search only ever changes trains at a hub, so these are also
+  // the stations every minor stop has to be reachable from.
+  const hubs = ranked
+    .filter(([id]) => major.has(id))
+    .slice(0, HUBS_PER_NETWORK)
+    .map(([id]) => id);
+  const hubSet = new Set(hubs);
+  // Every station the feed serves is searchable, even those that get only hub legs.
+  const allow = new Set(callCount.keys());
 
   // --- service calendar --------------------------------------------------------
   const windowDates: string[] = [];
@@ -566,6 +583,15 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
           const from = calls[i];
           const to = calls[j];
           if (!from || !to || from.id === to.id) continue;
+          // Which origin-destination pairs are worth carrying:
+          //  - between two major stations, always (the trips people search for);
+          //  - anything touching a hub, so every minor halt is reachable in one
+          //    change from the places the connection engine can change at.
+          // Pairs between two minor halts are dropped: they are by far the most
+          // numerous, and the least useful for planning a trip across a country.
+          if (!((major.has(from.id) && major.has(to.id)) || hubSet.has(from.id) || hubSet.has(to.id))) {
+            continue;
+          }
           const departMin = from.dep;
           const arriveMin = to.arr;
           const dur = arriveMin - departMin;
@@ -595,16 +621,6 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
     days.push({ date, count: trains.length });
   }
 
-  // The network's interchanges, published with the data rather than hardcoded in the
-  // app: the connection search only ever changes trains at a hub, so a foreign network
-  // with no hubs would yield direct trains and nothing else. Ranking by how many trips
-  // call there picks out exactly the interchange stations, and keeps doing so as the
-  // feed changes.
-  const hubs = ranked
-    .filter(([id]) => allow.has(id))
-    .slice(0, HUBS_PER_NETWORK)
-    .map(([id]) => id);
-
   fs.writeFileSync(
     path.join(outDir, "index.json"),
     JSON.stringify({
@@ -621,7 +637,7 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
   );
   fs.writeFileSync(path.join(outDir, "stations.json"), JSON.stringify([...stationOut.values()]), "utf-8");
 
-  return { trips: tripStops.size, stations: allow.size, pairs: pairTotal, days: days.length, bytes };
+  return { trips: tripStops.size, stations: allow.size, major: major.size, pairs: pairTotal, days: days.length, bytes };
 }
 
 // ---------------------------------------------------------------------------
@@ -655,7 +671,7 @@ async function main(): Promise<void> {
 
       const stats = await convert(net, zipPath, cw, today);
       console.log(
-        `  → ${stats.days} days, ${stats.stations} stations, ${stats.pairs} legs, ` +
+        `  → ${stats.days} days, ${stats.stations} stations (${stats.major} major), ${stats.pairs} legs, ` +
           `${(stats.bytes / 1_048_576).toFixed(1)} MB (${(stats.bytes / Math.max(stats.days, 1) / 1024).toFixed(0)} KB/day)`,
       );
     } catch (err) {
