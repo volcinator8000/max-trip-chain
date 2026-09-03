@@ -9,6 +9,7 @@ import {
   discountFor,
   heldPasses,
   isWeekendDate,
+  isOffPeak,
 } from "../src/data/passes";
 
 /** A train, with the real category strings the feeds actually publish. */
@@ -102,28 +103,63 @@ describe("German passes", () => {
 
   it("a discount card never makes a train free, but is reported", () => {
     expect(coverageFor(db("ICE 42"), held("db-bahncard-50"))).toBe("paid");
-    expect(discountFor(db("ICE 42"), held("db-bahncard-50"))).toBe(50);
-    expect(discountFor(db("ICE 42"), held("db-bahncard-25", "db-bahncard-50"))).toBe(50);
+    expect(discountFor(db("ICE 42"), held("db-bahncard-50"))?.discountPercent).toBe(50);
+    // The better card wins when both are held.
+    expect(discountFor(db("ICE 42"), held("db-bahncard-25", "db-bahncard-50"))?.discountPercent).toBe(50);
     // A discount on another operator's train is not a discount at all.
-    expect(discountFor(train({ source: "ns", axe: "Intercity" }), held("db-bahncard-50"))).toBe(0);
+    expect(discountFor(train({ source: "ns", axe: "Intercity" }), held("db-bahncard-50"))).toBeNull();
   });
 });
 
 describe("route-bound season tickets", () => {
   const leg = (o: string, d: string) =>
-    train({ source: "sncb", operator: "SNCB", axe: "IC", origin: o, destination: d });
+    train({ source: "ns", operator: "NS", axe: "Intercity", origin: o, destination: d });
 
   it("covers only the route the holder named, in both directions", () => {
-    const bindings = { "sncb-train-plus": { from: "BRUXELLES MIDI", to: "GENT SINT PIETERS" } };
-    const passes = held("sncb-train-plus");
-    expect(coverageFor(leg("BRUXELLES MIDI", "GENT SINT PIETERS"), passes, bindings)).toBe("free");
-    expect(coverageFor(leg("GENT SINT PIETERS", "BRUXELLES MIDI"), passes, bindings)).toBe("free");
-    expect(coverageFor(leg("BRUXELLES MIDI", "LIEGE GUILLEMINS"), passes, bindings)).toBe("paid");
+    const bindings = { "ns-traject-vrij": { from: "AMSTERDAM CENTRAAL", to: "UTRECHT CENTRAAL" } };
+    const passes = held("ns-traject-vrij");
+    expect(coverageFor(leg("AMSTERDAM CENTRAAL", "UTRECHT CENTRAAL"), passes, bindings)).toBe("free");
+    expect(coverageFor(leg("UTRECHT CENTRAAL", "AMSTERDAM CENTRAAL"), passes, bindings)).toBe("free");
+    expect(coverageFor(leg("AMSTERDAM CENTRAAL", "ROTTERDAM CENTRAAL"), passes, bindings)).toBe("paid");
   });
 
   it("covers nothing until the holder names a route", () => {
     // Better to show no benefit than to invent one across the whole network.
-    expect(coverageFor(leg("BRUXELLES MIDI", "GENT SINT PIETERS"), held("sncb-train-plus"), {})).toBe("paid");
+    expect(coverageFor(leg("AMSTERDAM CENTRAAL", "UTRECHT CENTRAAL"), held("ns-traject-vrij"), {})).toBe("paid");
+  });
+});
+
+describe("SNCB Train+ — an off-peak reduction across the network", () => {
+  // Not free travel and not route-bound: a reduction you earn by travelling outside
+  // the weekday rush, so it must never make a train free, and must not apply at 08:00.
+  const sncb = (over: Partial<MaxTrain> = {}) =>
+    train({ source: "sncb", operator: "SNCB", axe: "IC", ...over });
+  const passes = held("sncb-train-plus");
+
+  it("never makes a train free, however off-peak", () => {
+    expect(coverageFor(sncb({ departMin: 11 * 60 }), passes)).toBe("paid");
+  });
+
+  it("applies away from the weekday peaks, and not inside them", () => {
+    // 2026-09-10 is a Thursday: 08:00 and 17:30 are peak, 11:00 and 21:00 are not.
+    expect(discountFor(sncb({ departMin: 8 * 60 }), passes)).toBeNull();
+    expect(discountFor(sncb({ departMin: 17 * 60 + 30 }), passes)).toBeNull();
+    expect(discountFor(sncb({ departMin: 11 * 60 }), passes)?.id).toBe("sncb-train-plus");
+    expect(discountFor(sncb({ departMin: 21 * 60 }), passes)?.id).toBe("sncb-train-plus");
+  });
+
+  it("treats the whole weekend as off-peak", () => {
+    // 2026-09-12 is a Saturday, so even a 08:00 departure qualifies.
+    expect(isOffPeak(sncb({ date: "2026-09-12", departMin: 8 * 60 }))).toBe(true);
+    expect(discountFor(sncb({ date: "2026-09-12", departMin: 8 * 60 }), passes)?.id).toBe("sncb-train-plus");
+  });
+
+  it("is reported without inventing a rate, since the rate is not encoded", () => {
+    expect(discountFor(sncb({ departMin: 11 * 60 }), passes)?.discountPercent).toBeUndefined();
+  });
+
+  it("does not apply to the international EuroCity", () => {
+    expect(discountFor(sncb({ axe: "EC", departMin: 11 * 60 }), passes)).toBeNull();
   });
 });
 
@@ -178,10 +214,11 @@ describe("the pass table itself", () => {
     }
   });
 
-  it("gives every discount card a percentage, and no other pass one", () => {
+  it("only ever puts a percentage on a discount card", () => {
+    // A discount card may omit its rate (it is then reported without a figure), but
+    // a pass that makes travel free must never carry one.
     for (const p of PASSES) {
-      if (p.effect === "discount") expect(p.discountPercent, p.id).toBeGreaterThan(0);
-      else expect(p.discountPercent, p.id).toBeUndefined();
+      if (p.effect !== "discount") expect(p.discountPercent, p.id).toBeUndefined();
     }
   });
 });

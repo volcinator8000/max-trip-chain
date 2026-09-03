@@ -3488,6 +3488,7 @@ function openSettings(): void {
       // Say plainly where a pass buys nothing here, instead of letting the user
       // wonder why holding it changed no results.
       ...(p.id === "db-deutschlandticket" ? { note: t("pass_note_deutschlandticket") } : {}),
+      ...(p.id === "sncb-train-plus" ? { note: t("pass_note_train_plus") } : {}),
     })),
     onPass: (id, v) => {
       const next = v ? [...settings.passes, id] : settings.passes.filter((x) => x !== id);

@@ -127,9 +127,12 @@ function costChips(train: MaxTrain): HTMLElement[] {
     chips.push(
       el("span", { class: "chip chip-paid", text: t("badge_paid"), attrs: { title: t("badge_paid_hint") } }),
     );
-    // Only worth showing next to a fare you are actually paying.
+    // Only worth showing next to a fare you are actually paying. A card whose rate
+    // isn't encoded still says a reduction applies, rather than inventing a figure.
     if (train.discount) {
       chips.push(el("span", { class: "chip chip-discount", text: `-${train.discount}%` }));
+    } else if (train.discountPass) {
+      chips.push(el("span", { class: "chip chip-discount", text: t("badge_discount") }));
     }
   }
   return chips;

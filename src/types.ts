@@ -71,8 +71,10 @@ export interface MaxTrain {
    * configuration, where "free" is simply {@link MaxTrain.free}.
    */
   coverage?: Coverage;
-  /** Best percentage a held discount card gives on this train, if any. */
+  /** Percentage a held discount card takes off this train, when the rate is known. */
   discount?: number;
+  /** Id of the discount card that applies, even when its rate isn't encoded. */
+  discountPass?: string;
   /** Operator label for the result badge, e.g. "SNCF", "DB", "SNCB". */
   operator?: string;
   axe?: string;

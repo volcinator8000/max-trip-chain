@@ -61,7 +61,17 @@ export interface PassDefinition {
   requiresFreeSeat?: boolean;
   /** A season ticket valid only between two stations the holder names. */
   routeBound?: boolean;
-  /** Percentage off, for a discount card. Display only — never changes coverage. */
+  /**
+   * Only outside the weekday rush. Some products are a reduction you get precisely
+   * for travelling when the trains are empty, so applying them to a 08:00 departure
+   * would overstate what the holder actually gets.
+   */
+  offPeakOnly?: boolean;
+  /**
+   * Percentage off, when the rate is known. Display only — never changes coverage.
+   * A discount pass may omit it, and is then shown as a reduction without a figure
+   * rather than inventing one.
+   */
   discountPercent?: number;
   /**
    * True for a rule that applies to everyone, not a subscription: travel inside
@@ -144,12 +154,13 @@ export const PASSES: PassDefinition[] = [
     id: "sncb-train-plus",
     sources: ["sncb"],
     operator: "SNCB",
-    effect: "free",
+    // A reduction across the network, not free travel, and earned by travelling
+    // outside the weekday rush — so it neither hides peak trains nor claims an
+    // off-peak one costs nothing. The rate is not encoded because it is not known
+    // here; the chip says "reduction" rather than inventing a figure.
+    effect: "discount",
     excludeCategories: ["EC"],
-    // SNCB's Train+ combines a season ticket with urban transport at each end. The
-    // train half is a trajet abonnement — valid between two named stations — so the
-    // holder supplies them. (The bus/tram/metro half is outside what this app models.)
-    routeBound: true,
+    offPeakOnly: true,
   },
 
   // ── Netherlands ────────────────────────────────────────────────────────────
@@ -229,10 +240,27 @@ function longestMatch(category: string, rules: string[] | undefined): string | n
   return best;
 }
 
+/**
+ * Weekday rush-hour windows, as minutes from midnight. An assumption, not something
+ * any feed publishes — the morning and evening peaks operators typically price
+ * against. Wrong only in its edges, and one place to correct.
+ */
+const PEAK_WINDOWS: [number, number][] = [
+  [6 * 60, 9 * 60],
+  [16 * 60, 19 * 60],
+];
+
 /** Saturday or Sunday, from a "YYYY-MM-DD" date (UTC, so it can't drift by timezone). */
 export function isWeekendDate(date: string): boolean {
   const d = new Date(`${date}T00:00:00Z`).getUTCDay();
   return d === 0 || d === 6;
+}
+
+/** Does this train leave outside the weekday rush? Weekends count as off-peak. */
+export function isOffPeak(train: MaxTrain): boolean {
+  if (isWeekendDate(train.date)) return true;
+  const dep = ((train.departMin % 1440) + 1440) % 1440;
+  return !PEAK_WINDOWS.some(([from, to]) => dep >= from && dep < to);
 }
 
 /** Is a route-bound pass valid for this leg? Season tickets work in both directions. */
@@ -258,6 +286,7 @@ export function passCoverage(
   if (pass.requiresFreeSeat && !train.free) return null;
   if (pass.weekdaysOnly && isWeekendDate(train.date)) return null;
   if (pass.routeBound && !bindingCovers(binding, train)) return null;
+  if (pass.offPeakOnly && !isOffPeak(train)) return null;
 
   const category = train.axe ?? "";
   // An exclusion wins outright, but only if it is at least as specific as any
@@ -292,18 +321,23 @@ export function coverageFor(
 }
 
 /**
- * The best discount a held card gives on a train, or 0. Used only to label a train
- * that is still being paid for — it never changes whether the train is shown.
+ * The best discount card that applies to a train, or null. Used only to label a fare
+ * the holder is still paying — it never changes whether the train is shown.
+ *
+ * Returns the pass rather than a number so a product whose rate isn't encoded can
+ * still be reported honestly, as a reduction without a figure.
  */
-export function discountFor(train: MaxTrain, held: PassDefinition[]): number {
-  let best = 0;
+export function discountFor(train: MaxTrain, held: PassDefinition[]): PassDefinition | null {
+  let best: PassDefinition | null = null;
   for (const pass of held) {
-    if (pass.effect !== "discount" || !pass.discountPercent) continue;
+    if (pass.effect !== "discount") continue;
     if (!pass.sources.includes(train.source ?? "")) continue;
+    if (pass.offPeakOnly && !isOffPeak(train)) continue;
+    if (pass.routeBound) continue; // a route-bound discount would need its binding
     const category = train.axe ?? "";
     if (longestMatch(category, pass.excludeCategories)) continue;
     if (pass.categories?.length && !longestMatch(category, pass.categories)) continue;
-    if (pass.discountPercent > best) best = pass.discountPercent;
+    if (!best || (pass.discountPercent ?? 0) > (best.discountPercent ?? 0)) best = pass;
   }
   return best;
 }

@@ -235,8 +235,10 @@ export function buildPool(req: PoolRequest): MaxTrain[] {
   // hold over a million trains.
   for (const t of req.extra) {
     const coverage = coverageFor(t, held, bindings);
+    const discount = discountFor(t, held);
     t.coverage = coverage;
-    t.discount = discountFor(t, held);
+    t.discount = discount?.discountPercent ?? 0;
+    t.discountPass = discount?.id;
     t.available = showPaid || coverage !== "paid";
   }
 
@@ -246,7 +248,14 @@ export function buildPool(req: PoolRequest): MaxTrain[] {
   // arrive `free: false`, and they still run, so a paid search has to include them.
   const snapshot: MaxTrain[] = req.free.map((t) => {
     const coverage = coverageFor(t, held, bindings);
-    return { ...t, coverage, discount: discountFor(t, held), available: showPaid || coverage !== "paid" };
+    const discount = discountFor(t, held);
+    return {
+      ...t,
+      coverage,
+      discount: discount?.discountPercent ?? 0,
+      discountPass: discount?.id,
+      available: showPaid || coverage !== "paid",
+    };
   });
 
   poolArr = snapshot.concat(req.extra);
