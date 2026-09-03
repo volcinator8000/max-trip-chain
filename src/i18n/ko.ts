@@ -176,7 +176,6 @@ export const ko: Dict = {
   cal_legend_nearby_both: "보라색 = 양쪽 끝 인근 역",
   cal_available: "가능",
   cal_unavailable: "불가",
-  cal_unchecked: "확인 안 됨 — 이 날짜의 해외 시간표가 아직 로드되지 않았습니다",
   link_newtab: "(새 탭)",
   rt_outbound: "가는 편",
   rt_inbound: "오는 편",

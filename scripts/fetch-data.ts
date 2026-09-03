@@ -14,6 +14,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { encodeShard, type EncodableTrain } from "../src/data/shard";
+import { stationFileName } from "../src/data/stationShard";
 import { parseTimeToMinutes } from "../src/util/time";
 
 // ---------------------------------------------------------------------------
@@ -135,15 +136,6 @@ function mapRecord(raw: Record<string, unknown>): MappedRecord {
 // Paid shards
 // ---------------------------------------------------------------------------
 
-interface PaidIndex {
-  v: number;
-  source: string;
-  operator: string;
-  updatedAt: string;
-  /** Dates that have a shard, ascending, each with its train count. */
-  days: { date: string; count: number }[];
-}
-
 /**
  * Group the non-MAX records by date and write one compact shard per day, plus an
  * index the app reads to know which days exist. Best-effort: a failure here must not
@@ -151,7 +143,7 @@ interface PaidIndex {
  * already been written by the time this runs.
  */
 function writePaidShards(paid: MappedRecord[], updatedAt: string): void {
-  const byDate = new Map<string, EncodableTrain[]>();
+  const legs: EncodableTrain[] = [];
   let skipped = 0;
   for (const r of paid) {
     if (!r.date || !r.origine || !r.destination) continue;
@@ -163,50 +155,69 @@ function writePaidShards(paid: MappedRecord[], updatedAt: string): void {
       continue;
     }
     if (arriveMin < departMin) arriveMin += 1440; // crosses midnight
-    const train: EncodableTrain = {
+    legs.push({
+      date: r.date,
       origin: r.origine,
       destination: r.destination,
       departMin,
       arriveMin,
       trainNo: r.train_no,
       ...(r.axe ? { category: r.axe } : {}),
-    };
-    const arr = byDate.get(r.date);
-    if (arr) arr.push(train);
-    else byDate.set(r.date, [train]);
+    });
+  }
+
+  // One file per station, holding every leg where it is the origin or the destination.
+  // Same layout as the foreign networks, so the app has a single loading path — and so
+  // an exact-trip search and its whole 30-day calendar cost two files, not a month of
+  // the entire country.
+  const byStation = new Map<string, EncodableTrain[]>();
+  for (const leg of legs) {
+    for (const id of [leg.origin, leg.destination]) {
+      const bucket = byStation.get(id);
+      if (bucket) bucket.push(leg);
+      else byStation.set(id, [leg]);
+    }
   }
 
   fs.mkdirSync(OUT_PAID_DIR, { recursive: true });
-  // Clear stale shards from a previous run so past dates don't linger and mislead.
   for (const f of fs.readdirSync(OUT_PAID_DIR)) {
-    if (f.endsWith(".json")) fs.unlinkSync(path.join(OUT_PAID_DIR, f));
+    const full = path.join(OUT_PAID_DIR, f);
+    if (f.endsWith(".json")) fs.unlinkSync(full);
+    else if (f === "s") fs.rmSync(full, { recursive: true, force: true });
+  }
+  const stationsDir = path.join(OUT_PAID_DIR, "s");
+  fs.mkdirSync(stationsDir, { recursive: true });
+
+  const counts: Record<string, number> = {};
+  let bytes = 0;
+  const dates = new Set<string>();
+  for (const l of legs) dates.add(l.date);
+  for (const [id, bucket] of byStation) {
+    const shard = encodeShard(bucket, { source: "sncf-tgvmax", operator: "SNCF", free: false });
+    const json = JSON.stringify(shard);
+    fs.writeFileSync(path.join(stationsDir, stationFileName(id)), json, "utf-8");
+    bytes += json.length;
+    counts[id] = bucket.length;
   }
 
-  const days: { date: string; count: number }[] = [];
-  let bytes = 0;
-  for (const date of [...byDate.keys()].sort()) {
-    const trains = byDate.get(date) ?? [];
-    const shard = encodeShard(date, trains, {
+  const sorted = [...dates].sort();
+  fs.writeFileSync(
+    path.join(OUT_PAID_DIR, "index.json"),
+    JSON.stringify({
+      v: 2,
       source: "sncf-tgvmax",
       operator: "SNCF",
-      free: false,
-    });
-    const json = JSON.stringify(shard);
-    fs.writeFileSync(path.join(OUT_PAID_DIR, `${date}.json`), json, "utf-8");
-    bytes += json.length;
-    days.push({ date, count: trains.length });
-  }
-
-  const index: PaidIndex = {
-    v: 1,
-    source: "sncf-tgvmax",
-    operator: "SNCF",
-    updatedAt,
-    days,
-  };
-  fs.writeFileSync(path.join(OUT_PAID_DIR, "index.json"), JSON.stringify(index), "utf-8");
+      country: "FR",
+      updatedAt,
+      from: sorted[0] ?? "",
+      to: sorted[sorted.length - 1] ?? "",
+      hubs: [],
+      counts,
+    }),
+    "utf-8",
+  );
   console.log(
-    `[fetch-data] Wrote ${days.length} paid shards (${(bytes / 1_048_576).toFixed(1)} MB total` +
+    `[fetch-data] Wrote ${byStation.size} paid station files (${(bytes / 1_048_576).toFixed(0)} MB total` +
       `${skipped ? `, ${skipped} unparseable rows skipped` : ""}) → ${OUT_PAID_DIR}`,
   );
 }

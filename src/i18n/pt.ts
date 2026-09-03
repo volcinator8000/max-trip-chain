@@ -176,7 +176,6 @@ export const pt: Dict = {
   cal_legend_nearby_both: "roxo = estações próximas nas duas pontas",
   cal_available: "disponível",
   cal_unavailable: "indisponível",
-  cal_unchecked: "Não verificado — os horários estrangeiros deste dia não estão carregados",
   link_newtab: "(nova aba)",
   rt_outbound: "Ida",
   rt_inbound: "Volta",

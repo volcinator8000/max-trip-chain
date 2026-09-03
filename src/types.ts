@@ -227,16 +227,6 @@ export interface CalendarDay {
    * it gets its own calendar colour, distinct from the single-substitution one.
    */
   nearbyBoth?: boolean;
-  /**
-   * A foreign network is enabled but this day's timetables aren't loaded, so the day
-   * was judged on SNCF data alone and MAY have options that weren't checked.
-   *
-   * Only ever set on a day that would otherwise read as empty: a day already shown as
-   * available is correct regardless. Without this an unloaded day would claim
-   * "nothing runs" when the truth is "nothing was looked at" — and the whole point of
-   * loading day by day is that a country's month of timetables does not fit in memory.
-   */
-  partial?: boolean;
 }
 
 /** Dataset freshness metadata. */

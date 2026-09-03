@@ -176,7 +176,6 @@ export const nl: Dict = {
   cal_legend_nearby_both: "paars = nabije stations aan beide kanten",
   cal_available: "beschikbaar",
   cal_unavailable: "niet beschikbaar",
-  cal_unchecked: "Niet gecontroleerd — de buitenlandse dienstregeling van deze dag is niet geladen",
   link_newtab: "(nieuw tabblad)",
   rt_outbound: "Heen",
   rt_inbound: "Terug",

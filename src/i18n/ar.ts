@@ -176,7 +176,6 @@ export const ar: Dict = {
   cal_legend_nearby_both: "بنفسجي = محطات قريبة على الطرفين",
   cal_available: "متاح",
   cal_unavailable: "غير متاح",
-  cal_unchecked: "لم يتم التحقق — جداول الشبكات الأجنبية لهذا اليوم غير محمّلة",
   link_newtab: "(علامة تبويب جديدة)",
   rt_outbound: "ذهاب",
   rt_inbound: "إياب",

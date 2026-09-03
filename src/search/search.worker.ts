@@ -6,7 +6,7 @@
 import type { MaxTrain, SearchQuery } from "../types";
 import { loadDataset } from "../data/dataset";
 import { NETWORK_PROFILES, SNCF_PROFILE, type DatasetProfile } from "../data/profile";
-import { activeHubs, buildPool, resultDates, calendarDates, loadAllExtraTrains } from "../data/sources";
+import { activeHubs, buildPool, stationsForQuery, loadAllStationTrains } from "../data/sources";
 import { heldPasses, type RouteBinding } from "../data/passes";
 import { setDefaultHubs } from "../core/connections";
 import { HUB_STATIONS } from "../config";
@@ -51,7 +51,6 @@ let extraKey = "";
  */
 async function poolFor(
   query: SearchQuery,
-  today: string,
   includePaid: boolean,
   networks: string[],
   passes: string[],
@@ -66,16 +65,16 @@ async function poolFor(
     setDefaultHubs(HUB_STATIONS);
     return trains;
   }
-  const dates = resultDates(query, today);
-  // The key must fold in the passes as well as the dates: they decide which trains
+  const stations = stationsForQuery(query);
+  // The key must fold in the passes as well as the stations: they decide which trains
   // are usable, so a pool built under different passes is a different pool.
   const passKey = passes
     .map((id) => (passRoutes[id] ? `${id}:${passRoutes[id]?.from}>${passRoutes[id]?.to}` : id))
     .sort()
     .join(",");
-  const key = `${sources.map((s) => s.id).join("+")}|${passKey}|${includePaid ? "paid" : "covered"}|${dates.join(",")}`;
+  const key = `${sources.map((s) => s.id).join("+")}|${passKey}|${includePaid ? "paid" : "covered"}|${stations.slice().sort().join(",")}`;
   if (key !== extraKey) {
-    const extra = await loadAllExtraTrains(sources, dates, calendarDates(today));
+    const extra = await loadAllStationTrains(sources, stations);
     // No shards at all means the page won't have them either, so warming the
     // free-only pool would misrepresent the search.
     if (extra.length === 0) return null;
@@ -108,7 +107,7 @@ ctx.onmessage = (e: MessageEvent<WarmMsg>): void => {
         ctx.postMessage({ id, dump: null });
         return;
       }
-      const pool = await poolFor(query, today, includePaid === true, networks ?? [], passes ?? [], passRoutes ?? {});
+      const pool = await poolFor(query, includePaid === true, networks ?? [], passes ?? [], passRoutes ?? {});
       if (!pool) {
         ctx.postMessage({ id, dump: null });
         return;

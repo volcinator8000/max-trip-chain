@@ -176,7 +176,6 @@ export const de: Dict = {
   cal_legend_nearby_both: "Violett = nahe Bahnhöfe an beiden Enden",
   cal_available: "verfügbar",
   cal_unavailable: "nicht verfügbar",
-  cal_unchecked: "Nicht geprüft – die ausländischen Fahrpläne dieses Tages sind nicht geladen",
   link_newtab: "(neuer Tab)",
   rt_outbound: "Hinfahrt",
   rt_inbound: "Rückfahrt",

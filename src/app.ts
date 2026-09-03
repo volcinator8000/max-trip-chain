@@ -52,11 +52,12 @@ import { warmSearch } from "./search/searchClient";
 import {
   activeHubs,
   buildPool,
-  resultDates,
-  calendarDates,
-  datesLoaded,
-  loadAllExtraTrains,
+  hubsOf,
+  loadAllStationTrains,
   loadSourceStations,
+  stationCost,
+  stationLoaded,
+  stationsForQuery,
 } from "./data/sources";
 import { heldPasses, SELECTABLE_PASSES } from "./data/passes";
 import { NETWORK_PROFILES, SNCF_PROFILE, profileById, type DatasetProfile } from "./data/profile";
@@ -1521,24 +1522,7 @@ function repaintFormCalendar(): void {
   if (rangeOpt && calOpts) {
     calOpts = { ...calOpts, range: rangeOpt, hint: t("form_cal_flex_hint") };
   }
-  mount.append(render.calendarEl(markUnchecked(cal), calCtx, selected, calOpts));
-}
-
-/**
- * Flag calendar days that were judged without a foreign network's timetables.
- *
- * Only days that came out EMPTY are flagged: a day already found available is right
- * whatever else runs. An empty day, though, may just be one whose shards aren't
- * loaded — and saying "nothing runs" there would be a lie told to save memory.
- */
-function markUnchecked(cal: CalendarDay[]): CalendarDay[] {
-  const sources = activeSources().filter((p) => p.shardDir && !p.fullWindow);
-  if (sources.length === 0) return cal;
-  const loaded = datesLoaded(
-    sources.map((p) => p.id),
-    cal.map((d) => d.date),
-  );
-  return cal.map((d) => (d.available || loaded.has(d.date) ? d : { ...d, partial: true }));
+  mount.append(render.calendarEl(cal, calCtx, selected, calOpts));
 }
 
 /**
@@ -1743,6 +1727,22 @@ function cancelLoading(): boolean {
  */
 let extraTrains: MaxTrain[] = [];
 let extraKey = "";
+/** Stations whose shards have been pulled in for the current request. */
+let loadedStations: string[] = [];
+/** Cancels a background refinement that a newer search has superseded. */
+let refineToken = 0;
+
+/**
+ * How many legs of extra hub data to pull in while refining a search.
+ *
+ * Hub shards are the big ones — a month of Bruxelles-Midi is ~444k legs — so they are
+ * fetched in the background, cheapest first, and stop once this much has been added.
+ * The user asked for exactly this: results that keep improving the longer a page is
+ * open, rather than a slow first answer or a quietly incomplete one.
+ */
+const REFINE_LEG_BUDGET = 400_000;
+/** How many re-render rounds that budget is spread over. */
+const REFINE_ROUNDS = 3;
 
 /**
  * The sources to search beyond the free SNCF snapshot.
@@ -1761,18 +1761,8 @@ function activeSources(): DatasetProfile[] {
   return sources;
 }
 
-/**
- * Point `deps.trains` at the pool this search should use, fetching whatever extra
- * sources are enabled first.
- *
- * Returns null when the pool is already correct, so the common (SNCF-only) path stays
- * fully synchronous and behaves exactly as it did before any of this existed.
- */
-/**
- * The pass configuration folded into a string, so the pool memo (and the connection
- * caches keyed off its identity) rebuild when the user changes a subscription. Passes
- * change which trains are usable just as much as the date window does.
- */
+/** The pass configuration folded into a string, so the pool memo (and the connection
+ *  caches keyed off its identity) rebuild when the user changes a subscription. */
 function passKey(): string {
   const routes = settings.passes
     .map((id) => {
@@ -1786,8 +1776,8 @@ function passKey(): string {
 
 /**
  * True when nothing has been configured away from the app's defaults — a MAX JEUNE
- * holder searching SNCF only. That case can use the snapshot array untouched, which
- * keeps the common path allocation-free and its caches warm.
+ * holder searching SNCF only. That case uses the snapshot array untouched, which keeps
+ * the common path allocation-free and its caches warm.
  */
 function isDefaultConfig(sources: DatasetProfile[]): boolean {
   return (
@@ -1798,6 +1788,25 @@ function isDefaultConfig(sources: DatasetProfile[]): boolean {
   );
 }
 
+/** Assemble the pool from the extras currently held. */
+function poolFrom(extra: MaxTrain[], key: string): MaxTrain[] {
+  return buildPool({
+    free: deps.free,
+    extra,
+    held: heldPasses(settings.passes),
+    bindings: settings.passRoutes,
+    showPaid: settings.showPaid,
+    key,
+  });
+}
+
+/**
+ * Point `deps.trains` at the pool this search should use, fetching the shards of the
+ * stations the query names.
+ *
+ * Returns null when the pool is already correct, so the common (SNCF-only) path stays
+ * fully synchronous and behaves exactly as it did before any of this existed.
+ */
 function preparePool(): Promise<void> | null {
   const sources = activeSources();
   if (isDefaultConfig(sources)) {
@@ -1805,34 +1814,17 @@ function preparePool(): Promise<void> | null {
     setDefaultHubs(HUB_STATIONS);
     return null;
   }
-  const dates = resultDates(query, today);
-  const window = calendarDates(today);
-  const key = `${sources.map((s) => s.id).join("+")}|${passKey()}|${dates.join(",")}`;
-  const pool = (extra: MaxTrain[]): MaxTrain[] =>
-    buildPool({
-      free: deps.free,
-      extra,
-      held: heldPasses(settings.passes),
-      bindings: settings.passRoutes,
-      showPaid: settings.showPaid,
-      key,
-    });
-  if (sources.length === 0) {
-    // No extra sources, but a non-default pass set — the snapshot still has to be
-    // judged against the passes held (a MAX SENIOR must not see weekend trains).
-    deps.trains = pool([]);
-    setDefaultHubs(HUB_STATIONS);
-    return null;
-  }
+  const stations = stationsForQuery(query);
+  const key = `${sources.map((x) => x.id).join("+")}|${passKey()}|${stations.slice().sort().join(",")}`;
   if (key === extraKey) {
-    // Already fetched: buildPool memoizes, so this hands back the same array
-    // identity and the warm connection caches survive.
-    deps.trains = pool(extraTrains);
+    // Already fetched: buildPool memoizes, so this hands back the same array identity
+    // and the warm connection caches survive.
+    deps.trains = poolFrom(extraTrains, key);
     setDefaultHubs(activeHubs(HUB_STATIONS));
     return null;
   }
   return Promise.all([
-    loadAllExtraTrains(sources, dates, window),
+    loadAllStationTrains(sources, stations),
     // Coordinates for the foreign stations, so their results reach the map instead of
     // silently dropping off it.
     Promise.all(sources.map((p) => loadSourceStations(p).catch(() => []))),
@@ -1840,7 +1832,8 @@ function preparePool(): Promise<void> | null {
     .then(([extra, stationLists]) => {
       extraTrains = extra;
       extraKey = key;
-      deps.trains = pool(extra);
+      loadedStations = stations;
+      deps.trains = poolFrom(extra, key);
       // Foreign hubs must be in force before the search runs, or a cross-border trip
       // could only ever be a direct train.
       setDefaultHubs(activeHubs(HUB_STATIONS));
@@ -1855,6 +1848,90 @@ function preparePool(): Promise<void> | null {
       deps.trains = deps.free;
       setDefaultHubs(HUB_STATIONS);
     });
+}
+
+/**
+ * Keep improving the search after it has rendered.
+ *
+ * The two stations a query names answer direct trains and any one-change journey
+ * (X→hub lives in X's shard, hub→Y in Y's). What they cannot answer is a journey
+ * changing between two hubs, or a browse list of everywhere reachable VIA a hub — that
+ * needs the hubs' own shards, which are the largest files there are.
+ *
+ * So they are pulled in afterwards, smallest first, within a budget, re-running the
+ * search as each lands. A result that appears a second later is much better than
+ * either a slow first answer or a quietly incomplete one.
+ */
+function refineWithHubs(): void {
+  const sources = activeSources().filter((p) => p.shardDir);
+  if (sources.length === 0) return;
+  const token = ++refineToken;
+  void (async () => {
+    // Cheapest first, so the most connections are gained per byte fetched.
+    const candidates: { profile: DatasetProfile; station: string; cost: number }[] = [];
+    for (const profile of sources) {
+      for (const hub of await hubsOf(profile)) {
+        if (loadedStations.includes(hub) || stationLoaded(profile.id, hub)) continue;
+        candidates.push({ profile, station: hub, cost: await stationCost(profile, hub) });
+      }
+    }
+    candidates.sort((a, b) => a.cost - b.cost);
+
+    // Fetched in BATCHES, not one at a time. Every widened pool is a new array, which
+    // by design resets the connection caches — so re-rendering after each single hub
+    // meant a full recompute per hub, and a dozen cheap Spanish hubs could lock the
+    // page up for minutes. A handful of rounds keeps the "results keep improving"
+    // behaviour while paying for the recompute only a few times.
+    let spent = 0;
+    let batch: typeof candidates = [];
+    const rounds: (typeof candidates)[] = [];
+    const perRound = Math.max(1, Math.ceil(REFINE_LEG_BUDGET / REFINE_ROUNDS));
+    let batchCost = 0;
+    for (const next of candidates) {
+      if (spent + next.cost > REFINE_LEG_BUDGET) break;
+      spent += next.cost;
+      batch.push(next);
+      batchCost += next.cost;
+      if (batchCost >= perRound) {
+        rounds.push(batch);
+        batch = [];
+        batchCost = 0;
+      }
+    }
+    if (batch.length) rounds.push(batch);
+
+    for (const round of rounds) {
+      if (token !== refineToken) return; // a newer search has taken over
+      const gained = (
+        await Promise.all(round.map((c) => loadAllStationTrains([c.profile], [c.station])))
+      ).flat();
+      if (token !== refineToken) return;
+      if (gained.length === 0) continue;
+      // A wider pool is a different pool: new key, new array identity, fresh caches.
+      const merged = mergeTrains(extraTrains, gained);
+      extraTrains = merged;
+      loadedStations = [...loadedStations, ...round.map((c) => c.station)];
+      extraKey = `${extraKey}+${round.map((c) => c.station).join("+")}`;
+      deps.trains = poolFrom(merged, extraKey);
+      registerStations(gained);
+      renderSearch();
+      // Let the browser paint (and the user act) between rounds.
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  })();
+}
+
+/** Union of two train lists, without the duplicates a shared leg would produce. */
+function mergeTrains(a: MaxTrain[], b: MaxTrain[]): MaxTrain[] {
+  const seen = new Set<string>();
+  const out: MaxTrain[] = [];
+  for (const t of [...a, ...b]) {
+    const key = `${t.date}|${t.origin}>${t.destination}|${t.departMin}|${t.trainNo}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
 }
 
 /**
@@ -2005,8 +2082,17 @@ function runSearch(): void {
   // strings, not by which trains produced them, so warming on a free-only pool and
   // rendering on a paid one would present free-only journeys as the paid answer.
   const pool = preparePool();
-  if (pool) void pool.then(proceed);
-  else proceed();
+  if (pool) {
+    void pool.then(() => {
+      proceed();
+      // Then keep looking: the hubs' own shards unlock changing between hubs and the
+      // browse-everywhere lists, and land as they arrive.
+      refineWithHubs();
+    });
+  } else {
+    proceed();
+    refineWithHubs();
+  }
 }
 
 function updateDocTitle(): void {
@@ -2481,7 +2567,7 @@ function runMultiCity(c: RenderCtx): void {
     // handy when you left the date blank. Clicking a day sets it and re-runs.
     const legCal = availabilityCalendar(trains, leg.from, leg.to, windowDates, opts);
     const legCtx: RenderCtx = { ...c, onSelectDay: (d) => setLegDate(i, d) };
-    const calEl = journeys.length ? render.calendarEl(markUnchecked(legCal), legCtx, leg.date) : null;
+    const calEl = journeys.length ? render.calendarEl(legCal, legCtx, leg.date) : null;
     if (calEl) sec.append(calEl);
     const cards: HTMLElement[] = [];
     if (journeys.length === 0) sec.append(render.emptyEl(t("res_none")));
@@ -2752,7 +2838,7 @@ function runOdSearch(c: RenderCtx): void {
   // availability, mirroring the round-trip outbound calendar's collapse pattern.
   // Opened from an Ideas one-way tap → show the days you can go up front (calendar open);
   // otherwise it's collapsed behind a one-tap "Départ : … · Changer" summary as usual.
-  const odCal = render.collapsibleCalendar(render.calendarEl(markUnchecked(cal), c, query.date), "cal-collapsible", openOdCalendar);
+  const odCal = render.collapsibleCalendar(render.calendarEl(cal, c, query.date), "cal-collapsible", openOdCalendar);
   openOdCalendar = false;
   odCal.setLabel(t("outbound_change", { date: formatDate(query.date) }));
   refs.results.append(odCal.host);
@@ -3134,7 +3220,7 @@ function runTripSearch(c: RenderCtx): void {
     const refocus = retCalHost.contains(document.activeElement);
     clear(retCalHost);
     retCalHost.append(
-      render.calendarEl(markUnchecked(retCal), retCtx, retDate, {
+      render.calendarEl(retCal, retCtx, retDate, {
         title: t("rt_inbound"),
         // First cell is same-day (hours on site); every later cell is nights away.
         count: (n, day) => (day.date === query.date ? t("daytrip_cal_hours", { h: n }) : t("getaway_nights", { n })),
@@ -3231,7 +3317,7 @@ function runTripSearch(c: RenderCtx): void {
     refreshInPlace();
   };
   const outCalCtx: RenderCtx = { ...c, onSelectDay: onOutboundDay };
-  const outCalEl = render.calendarEl(markUnchecked(outCal), outCalCtx, query.date, {
+  const outCalEl = render.calendarEl(outCal, outCalCtx, query.date, {
     title: t("getaway_cal_title"),
     count: (n) => (isSameDayTrip ? t("daytrip_cal_hours", { h: n }) : t("getaway_nights", { n })),
     countLegend: isSameDayTrip ? t("cal_legend_hours") : t("cal_legend_nights"),

@@ -2,21 +2,28 @@
  * Extra train sources and the SEARCH POOL built from them.
  *
  * The committed snapshot holds only trains with a free MAX seat. Anything else the
- * user asks to see — SNCF trains that run but cost money, and (later) foreign
- * networks — arrives as compact per-day shards fetched on demand.
+ * user asks to see — SNCF trains that run but cost money, and the foreign networks —
+ * arrives as per-STATION shards, fetched for the stations a search actually mentions.
+ *
+ * ## Why per-station
+ *
+ * A station's shard carries every leg where it is the origin or the destination, for
+ * the whole booking window. So an exact trip needs exactly two files: `X→hub` is in
+ * X's shard and `hub→Y` is in Y's, which answers direct trains, one-change journeys
+ * and the full 30-day calendar without touching the rest of the network. The median
+ * station is ~17 KB gzipped for a month; a single day of a whole country is ~500 KB.
  *
  * ## Why a "pool" rather than a flag
  *
  * The core search never learns what "paid" means. Instead this module hands it a
- * different ARRAY: free-only by default, or free-plus-paid when the toggle is on,
- * with `available` set true on everything the user asked to include. Two properties
- * fall out of that for free:
+ * different ARRAY: free-only by default, or free-plus-extras, with `available` set
+ * from the passes held. Two properties fall out of that for free:
  *
  *  - The core keeps one `available` test. No filter, connection sweep or calendar
  *    needs a paid-aware branch, so paid mode cannot silently miss a code path.
  *  - `src/core/connections.ts` memoizes on the trains array IDENTITY (`WeakMap`).
- *    A different pool is a different array, so switching the toggle can never serve
- *    free-only results out of a warm cache — the caches simply don't collide.
+ *    A different pool is a different array, so changing sources can never serve stale
+ *    results out of a warm cache — the caches simply don't collide.
  *
  * That second point is why {@link buildPool} caches pool arrays by key: the same
  * request must return the SAME array back, or every search would miss the caches.
@@ -25,24 +32,26 @@
 import type { MaxTrain, SearchQuery } from "../types";
 import { coverageFor, discountFor, type PassDefinition, type RouteBinding } from "./passes";
 import { decodeShard } from "./shard";
+import { stationFileName } from "./stationShard";
 import type { DatasetProfile } from "./profile";
-import { addDays, dayIndex } from "../util/time";
+import { dayIndex, addDays } from "../util/time";
 
 /** How far ahead the booking window (and so the calendars) reach. */
 export const BOOKING_WINDOW_DAYS = 30;
 
-/** Shape of a shard directory's index.json, listing the days that actually exist. */
+/** Shape of a shard directory's index.json. */
 interface ShardIndex {
   v: number;
-  days: { date: string; count: number }[];
   /** The network's busiest stations, published as its interchange hubs. */
   hubs?: string[];
+  /** Legs held in each station's shard — used to fetch cheap files first. */
+  counts?: Record<string, number>;
 }
 
-/** What a source's index tells us: which days exist, and where trains can change. */
+/** What a source's index tells us: where trains can change, and what each file costs. */
 interface SourceIndex {
-  dates: Set<string>;
   hubs: string[];
+  counts: Record<string, number>;
 }
 
 /** Per-source index, or null when the source published nothing. */
@@ -50,43 +59,14 @@ const indexCache = new Map<string, Promise<SourceIndex | null>>();
 /** Hubs of every source loaded so far, so connection search can change trains there. */
 const loadedHubs = new Map<string, string[]>();
 /**
- * Decoded shards, keyed by source and date. A `Map` keeps insertion order, which is
- * what makes the eviction below a genuine LRU.
+ * Decoded station shards, keyed by source and station id.
  *
- * Bounded on purpose: a day of Belgian or Dutch trains is ~25 MB of heap, so an
- * unbounded cache would grow into a browser tab crash as the user moves around the
- * calendar. Entries are re-fetched if wanted again, which is cheap next to that.
+ * Unbounded on purpose. A station's shard is the whole month for one place — the
+ * median is a few thousand legs — so holding every station a user visits in a session
+ * is far cheaper than the per-day scheme it replaced, where one Belgian day alone was
+ * ~99k trains and ~25 MB.
  */
 const shardCache = new Map<string, Promise<MaxTrain[]>>();
-/**
- * How many decoded days to keep. Sized so the heaviest networks stay survivable, but
- * large enough that a full-window source (SNCF's paid trains) holds its whole month
- * plus a few days of a foreign network alongside it.
- */
-let cacheLimit = BOOKING_WINDOW_DAYS + 8;
-
-/** Drop least-recently-used days once the cache is over its limit. */
-function evictShards(): void {
-  while (shardCache.size > cacheLimit) {
-    const oldest = shardCache.keys().next();
-    if (oldest.done) return;
-    shardCache.delete(oldest.value);
-  }
-}
-
-/** Dates of `wanted` this source has decoded and still holds. */
-export function datesLoaded(sourceIds: string[], dates: string[]): Set<string> {
-  const loaded = new Set<string>();
-  for (const date of dates) {
-    if (sourceIds.every((id) => shardCache.has(`${id}|${date}`))) loaded.add(date);
-  }
-  return loaded;
-}
-
-/** The cache limit, raised so a full-window source can't evict its own days. */
-export function setShardCacheLimit(n: number): void {
-  cacheLimit = Math.max(BOOKING_WINDOW_DAYS + 4, n);
-}
 
 async function fetchJson<T>(url: string): Promise<T | null> {
   try {
@@ -99,9 +79,9 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 }
 
 /**
- * Which dates this source publishes. Resolves to null when the index is missing —
- * the deploy may not have generated shards — and callers then skip the source
- * entirely rather than firing a burst of 404s.
+ * What this source publishes. Resolves to null when the index is missing — the deploy
+ * may not have generated shards — and callers then skip the source entirely rather
+ * than firing a burst of 404s.
  */
 function shardIndex(profile: DatasetProfile): Promise<SourceIndex | null> {
   const cached = indexCache.get(profile.id);
@@ -109,13 +89,13 @@ function shardIndex(profile: DatasetProfile): Promise<SourceIndex | null> {
   const dir = profile.shardDir;
   const p: Promise<SourceIndex | null> = dir
     ? fetchJson<ShardIndex>(`${dir}index.json`).then((idx) => {
-        if (!idx || !Array.isArray(idx.days)) return null;
+        if (!idx) return null;
         // A network's hubs come from its own data, not from a list in the app: the
         // connection search only ever changes trains at a hub, so a network with none
         // would offer direct trains and nothing else.
-        const hubs = Array.isArray(idx.hubs) ? idx.hubs : profile.hubs;
+        const hubs = Array.isArray(idx.hubs) && idx.hubs.length ? idx.hubs : profile.hubs;
         loadedHubs.set(profile.id, hubs);
-        return { dates: new Set(idx.days.map((d) => d.date)), hubs };
+        return { hubs, counts: idx.counts ?? {} };
       })
     : Promise.resolve(null);
   indexCache.set(profile.id, p);
@@ -138,64 +118,91 @@ export function activeHubs(baseHubs: string[]): string[] {
 }
 
 /**
- * Fetch and decode one day's shard. A missing or malformed shard resolves to an
- * empty array: a bad day degrades to "no extra trains then", never to a failed search.
+ * Fetch and decode one station's shard. A missing or malformed shard resolves to an
+ * empty array: a station with no file degrades to "no extra trains there", never to a
+ * failed search.
  *
  * The decoded trains are marked usable here rather than in the codec. A shard is only
  * ever fetched because the user turned its source ON, so by the time it is decoded
  * "the user wants these trains" is exactly what `available` should say — while `free`
  * and `paid` keep recording what the train actually is, for the badge.
  */
-function loadShard(profile: DatasetProfile, date: string): Promise<MaxTrain[]> {
-  const key = `${profile.id}|${date}`;
+function loadStationShard(profile: DatasetProfile, stationId: string): Promise<MaxTrain[]> {
+  const key = `${profile.id}|${stationId}`;
   const cached = shardCache.get(key);
-  if (cached) {
-    // Re-insert so recently used days survive eviction.
-    shardCache.delete(key);
-    shardCache.set(key, cached);
-    return cached;
-  }
-  const p = fetchJson<unknown>(`${profile.shardDir ?? ""}${date}.json`).then((raw) => {
+  if (cached) return cached;
+  const p = fetchJson<unknown>(`${profile.shardDir ?? ""}s/${stationFileName(stationId)}`).then((raw) => {
     const trains = decodeShard(raw);
     for (const t of trains) t.available = true;
     return trains;
   });
   shardCache.set(key, p);
-  evictShards();
   return p;
 }
 
-/**
- * Load every shard a search needs, in parallel. Days the source doesn't publish are
- * skipped without a request. Resolves to the flattened extra trains.
- */
-export async function loadExtraTrains(profile: DatasetProfile, dates: string[]): Promise<MaxTrain[]> {
-  if (!profile.shardDir) return [];
+/** Whether a station's shard is already decoded and held. */
+export function stationLoaded(sourceId: string, stationId: string): boolean {
+  return shardCache.has(`${sourceId}|${stationId}`);
+}
+
+/** How many legs a station's shard holds, per the index (0 when unknown). */
+export async function stationCost(profile: DatasetProfile, stationId: string): Promise<number> {
   const idx = await shardIndex(profile);
-  if (!idx) return [];
-  const wanted = dates.filter((d) => idx.dates.has(d));
-  if (wanted.length === 0) return [];
-  const loaded = await Promise.all(wanted.map((d) => loadShard(profile, d)));
-  return loaded.flat();
+  return idx?.counts[stationId] ?? 0;
+}
+
+/** The hubs a source publishes, once its index is known. */
+export async function hubsOf(profile: DatasetProfile): Promise<string[]> {
+  const idx = await shardIndex(profile);
+  return idx?.hubs ?? [];
 }
 
 /**
- * Load the extra trains for several sources at once, in parallel.
+ * Load the shards for a set of stations, in parallel, and return their trains with
+ * duplicates removed.
+ *
+ * Deduplication matters: a leg is filed under BOTH its endpoints, so fetching X and Y
+ * yields every X→Y train twice. Left in, the search would offer each journey twice.
+ */
+export async function loadStationTrains(
+  profile: DatasetProfile,
+  stationIds: string[],
+): Promise<MaxTrain[]> {
+  if (!profile.shardDir || stationIds.length === 0) return [];
+  const idx = await shardIndex(profile);
+  if (!idx) return [];
+  // When the index lists counts, trust it: a station missing from it has no shard, and
+  // requesting one would just be a 404 per station per search. An index without counts
+  // (an older build) tells us nothing, so everything is attempted.
+  const known = Object.keys(idx.counts).length > 0;
+  const wanted = stationIds.filter((id) => (known ? (idx.counts[id] ?? 0) > 0 : true));
+  if (wanted.length === 0) return [];
+  const loaded = await Promise.all(wanted.map((id) => loadStationShard(profile, id)));
+  const seen = new Set<string>();
+  const out: MaxTrain[] = [];
+  for (const list of loaded) {
+    for (const t of list) {
+      const key = `${t.date}|${t.origin}>${t.destination}|${t.departMin}|${t.trainNo}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+/**
+ * Load the given stations across several sources at once.
  *
  * A source that fails contributes nothing instead of failing the search — one network
  * being down should cost you that network, not the trip.
  */
-export async function loadAllExtraTrains(
+export async function loadAllStationTrains(
   profiles: DatasetProfile[],
-  dates: string[],
-  windowDates: string[] = dates,
+  stationIds: string[],
 ): Promise<MaxTrain[]> {
   const results = await Promise.all(
-    profiles.map((p) =>
-      // A small source is loaded across the whole window so its calendars stay
-      // complete; a heavy one only for the days the results span.
-      loadExtraTrains(p, p.fullWindow ? windowDates : dates).catch(() => [] as MaxTrain[]),
-    ),
+    profiles.map((p) => loadStationTrains(p, stationIds).catch(() => [] as MaxTrain[])),
   );
   return results.flat();
 }
@@ -203,54 +210,37 @@ export async function loadAllExtraTrains(
 /** Station registries published by shard-only sources, so foreign results map. */
 export async function loadSourceStations(
   profile: DatasetProfile,
-): Promise<{ id: string; label: string; lat: number; lng: number; country?: string }[]> {
+): Promise<{ id: string; label: string; lat: number; lng: number; country?: string; aliases?: string[] }[]> {
   if (!profile.stationsUrl) return [];
-  const list = await fetchJson<{ id: string; label: string; lat: number; lng: number; country?: string }[]>(
-    profile.stationsUrl,
-  );
+  const list = await fetchJson<
+    { id: string; label: string; lat: number; lng: number; country?: string; aliases?: string[] }[]
+  >(profile.stationsUrl);
   return Array.isArray(list) ? list : [];
 }
 
 /**
- * The dates a search's RESULTS need — not the whole booking window.
+ * The stations a query refers to — the shards a search needs.
  *
- * This distinction is the difference between working and running out of memory. A
- * single Belgian day decodes to ~99k trains and ~25 MB of heap; the 30-day window for
- * Belgium and the Netherlands together would be about 1.5 GB. The results a user is
- * actually looking at span the chosen day and its immediate neighbours, so that is
- * what gets loaded. The 30-day calendar is handled separately: days whose shards
- * aren't loaded are drawn as "not checked" rather than as "nothing runs" (see
- * {@link datesLoaded}).
+ * This is the whole economy of the design: a search fetches the places it names, not
+ * a day of every train in a country.
  */
-export function resultDates(query: SearchQuery, today: string): string[] {
-  const dates = new Set<string>();
-  const add = (d: string | undefined): void => {
-    if (d) dates.add(d);
+export function stationsForQuery(query: SearchQuery): string[] {
+  const ids = new Set<string>();
+  const add = (id: string | undefined): void => {
+    if (id) ids.add(id);
   };
-  add(query.date);
-  add(query.returnDate);
-  add(query.tourEndDate);
-  for (const leg of query.legs ?? []) add(leg.date);
-  // Flexible dates sweep ±N days around the chosen one.
-  const flex = query.flexDays ?? 0;
-  for (let i = -flex; i <= flex; i++) add(addDays(query.date, i));
-  // A journey may run past midnight, or wait overnight at a hub across several days,
-  // so the days after each chosen one are part of the same result.
-  const span = Math.max(2, Math.floor(query.maxSpanDays ?? 2));
-  for (const d of [...dates]) {
-    for (let i = 1; i < span; i++) add(addDays(d, i));
+  add(query.origin);
+  add(query.destination);
+  add(query.via);
+  for (const city of query.cities ?? []) add(city);
+  for (const leg of query.legs ?? []) {
+    add(leg.from);
+    add(leg.to);
   }
-  // A round trip's return can be any day of the window, so the return calendar needs
-  // its own days — but only once the user has picked an outbound.
-  if (query.stay && query.returnDate) add(addDays(query.returnDate, 1));
-  add(today);
-  return [...dates].sort();
+  return [...ids];
 }
 
-/**
- * Every day of the booking window — what the availability calendars sweep. Only the
- * SNCF snapshot can answer for all of these, because it is loaded whole.
- */
+/** Every day of the booking window — what the availability calendars sweep. */
 export function calendarDates(today: string): string[] {
   const out: string[] = [];
   for (let i = 0; i < BOOKING_WINDOW_DAYS; i++) out.push(addDays(today, i));

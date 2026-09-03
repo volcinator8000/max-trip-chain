@@ -63,7 +63,9 @@ Turn one on and its trains join the same search: a Paris → Madrid trip can cha
 
 The timetables come from each country's public open-data feed and are rebuilt with every deploy, exactly like the SNCF snapshot.
 
-One difference you will see: a foreign country's timetables are fetched **a day at a time**, because a month of Belgian or Dutch services is more than a phone can hold. So on the 30-day calendar, days that haven't been fetched are drawn greyed and dashed — "not checked", not "nothing runs". Tap one and it loads. The French calendar is never like this: the SNCF snapshot is small enough to hold whole.
+Timetables are fetched **per station, not per day**. Each station has one small file holding every train that starts or ends there for the whole month, so searching Ghent → Vielsalm downloads those two files and nothing else — a few kilobytes, and the 30-day calendar is complete straight away. A one-change journey works out of the same two files: the leg *to* the interchange is in the origin's file, the leg *from* it is in the destination's.
+
+Two things follow from that. Big interchanges have big files (a month of Bruxelles-Midi is a couple of megabytes), so searches through them cost more. And journeys that change between *two* interchanges, or the "everywhere from here" lists, need those interchange files too — so the app fetches them **in the background after showing you the first answer**, in a few rounds, and the results improve as they land.
 
 ## How it runs for free, forever — no server, no account
 

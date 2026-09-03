@@ -58,7 +58,7 @@ Free, no account, open-source, and serverless — it runs entirely in your brows
 Which trains have a free MAX seat is published by SNCF as open data. MAX Finder is a static frontend over it:
 
 - A scheduled **GitHub Action** snapshots the dataset each morning into `public/data/tgvmax.json`, keeping only the trains with a free seat (~77 MB feed trimmed to ~6 MB).
-- The optional extras — paid SNCF trains, and the German / Belgian / Luxembourgish / Dutch / Spanish networks built from their public GTFS feeds — are rebuilt by each deploy as compact **per-day shards** and never committed, so the repo stays small. They are fetched only for the days a search touches, and only for the networks you switch on.
+- The optional extras — paid SNCF trains, and the German / Belgian / Luxembourgish / Dutch / Spanish networks built from their public GTFS feeds — are rebuilt by each deploy as compact **per-station shards** and never committed, so the repo stays small. Each station's shard holds a month of the trains that start or end there, so a search fetches the two stations it names (a few KB for most places) and gets a complete 30-day calendar from them.
 - The **browser** downloads that file and runs the search on your device. (There is no live-API call at runtime: the app reads only the published snapshots, which is what lets it work offline.)
 - Everything is static files on **GitHub Pages** — no backend, no database, no server cost.
 

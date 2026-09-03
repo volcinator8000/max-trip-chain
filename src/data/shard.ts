@@ -1,6 +1,6 @@
 /**
- * Compact per-day train shard — the wire format for the (large) datasets that are
- * NOT the committed free-MAX snapshot: paid SNCF trains, and the foreign networks.
+ * Compact train shard — the wire format for the datasets that are NOT the committed
+ * free-MAX snapshot: paid SNCF trains, and the foreign networks.
  *
  * Why a codec at all: the verbose record shape the SNCF snapshot uses costs ~180
  * bytes per train, which is fine for the ~64k free seats but not for the ~322k paid
@@ -8,9 +8,11 @@
  * per-shard string table plus integer times cuts a record to ~30 bytes — small
  * enough that a day's worth is a quick fetch even on mobile.
  *
- * One shard = one calendar date, so the app fetches only the days a search touches
- * (see {@link file://./sources.ts}). Shards are built by the data jobs and served as
- * static files; nothing here depends on the browser, so the build scripts share it.
+ * One shard = one STATION, holding every leg where it is the origin or destination
+ * across the whole booking window (see {@link file://./stationShard.ts} for why).
+ * A search therefore fetches a file per station it mentions, not a day of an entire
+ * country. Shards are built by the data jobs and served as static files; nothing here
+ * depends on the browser, so the build scripts share it.
  */
 
 import type { MaxTrain } from "../types";
@@ -20,7 +22,7 @@ export const SHARD_VERSION = 2;
 
 /**
  * One train in a shard, positionally encoded:
- * `[originIdx, destIdx, departMin, arriveMin, trainIdx, categoryIdx]`
+ * `[originIdx, destIdx, departMin, arriveMin, trainIdx, categoryIdx, dateIdx]`
  *
  * Every field is an index into one of the shard's string tables, or a plain integer.
  * Train numbers are interned rather than inlined because one service becomes many
@@ -30,13 +32,13 @@ export const SHARD_VERSION = 2;
  * 1440), so decoding never re-derives the day rollover. An index of -1 means the
  * source gave no value.
  */
-export type ShardRow = [number, number, number, number, number, number];
+export type ShardRow = [number, number, number, number, number, number, number];
 
 export interface TrainShard {
   /** Schema version; a reader rejects anything it doesn't understand. */
   v: number;
-  /** The single calendar date ("YYYY-MM-DD") every row in this shard runs on. */
-  date: string;
+  /** String table: the dates rows run on, referenced by row index 6. */
+  dates: string[];
   /** Profile id that produced the shard, e.g. "sncf-tgvmax" or "db-fernverkehr". */
   source: string;
   /** Operator label shown on the result badge, e.g. "SNCF" or "DB". */
@@ -64,6 +66,8 @@ function hhmm(min: number): string {
 
 /** A train as the encoder takes it: times already resolved to absolute minutes. */
 export interface EncodableTrain {
+  /** The calendar date this train runs ("YYYY-MM-DD"). */
+  date: string;
   origin: string;
   destination: string;
   departMin: number;
@@ -77,7 +81,6 @@ export interface EncodableTrain {
  * the shard's own string tables.
  */
 export function encodeShard(
-  date: string,
   trains: EncodableTrain[],
   meta: { source: string; operator: string; free: boolean },
 ): TrainShard {
@@ -87,6 +90,8 @@ export function encodeShard(
   const categoryIdx = new Map<string, number>();
   const trainNos: string[] = [];
   const trainNoIdx = new Map<string, number>();
+  const dates: string[] = [];
+  const dateIdx = new Map<string, number>();
 
   const intern = (table: string[], index: Map<string, number>, value: string): number => {
     const seen = index.get(value);
@@ -104,11 +109,12 @@ export function encodeShard(
     t.arriveMin,
     t.trainNo ? intern(trainNos, trainNoIdx, t.trainNo) : -1,
     t.category ? intern(categories, categoryIdx, t.category) : -1,
+    intern(dates, dateIdx, t.date),
   ]);
 
   return {
     v: SHARD_VERSION,
-    date,
+    dates,
     source: meta.source,
     operator: meta.operator,
     free: meta.free,
@@ -133,8 +139,9 @@ export function decodeShard(shard: unknown): MaxTrain[] {
   if (!shard || typeof shard !== "object") return [];
   const s = shard as Partial<TrainShard>;
   if (s.v !== SHARD_VERSION) return [];
-  if (typeof s.date !== "string" || !Array.isArray(s.rows) || !Array.isArray(s.stations)) return [];
+  if (!Array.isArray(s.dates) || !Array.isArray(s.rows) || !Array.isArray(s.stations)) return [];
   const stations = s.stations;
+  const dates = s.dates;
   const categories = Array.isArray(s.categories) ? s.categories : [];
   const trainNos = Array.isArray(s.trains) ? s.trains : [];
   const free = s.free === true;
@@ -142,16 +149,17 @@ export function decodeShard(shard: unknown): MaxTrain[] {
   const operator = typeof s.operator === "string" ? s.operator : "";
   const out: MaxTrain[] = [];
   for (const row of s.rows) {
-    if (!Array.isArray(row) || row.length < 6) continue;
-    const [oi, di, departMin, arriveMin, ti, ci] = row as ShardRow;
+    if (!Array.isArray(row) || row.length < 7) continue;
+    const [oi, di, departMin, arriveMin, ti, ci, dtIdx] = row as ShardRow;
     const origin = stations[oi];
     const destination = stations[di];
-    if (origin === undefined || destination === undefined) continue;
+    const date = dates[dtIdx];
+    if (origin === undefined || destination === undefined || date === undefined) continue;
     if (typeof departMin !== "number" || typeof arriveMin !== "number") continue;
     const category = ci >= 0 ? categories[ci] : undefined;
     const trainNo = ti >= 0 ? (trainNos[ti] ?? "") : "";
     out.push({
-      date: s.date,
+      date,
       origin,
       destination,
       depart: hhmm(departMin),

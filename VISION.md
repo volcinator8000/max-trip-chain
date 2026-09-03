@@ -86,14 +86,17 @@ canonical id wherever SNCF also serves the station.
 - **Great Britain** — the Belgian feed lists London St Pancras, but its Eurostar
   services carry no future dates, so GB is effectively absent. Domestic GB timetables
   need Rail Data Marketplace credentials, which a fork can add as a repo secret.
-- **Memory, now bounded rather than solved.** A single Belgian day decodes to ~99k
-  trains and ~25 MB of heap, so the booking window for Belgium and the Netherlands
-  together would be roughly 1.5 GB. Foreign networks therefore load only the days a
-  search's results span, with an LRU over decoded days, and their calendars mark
-  days they have not checked instead of claiming nothing runs. A search sits around
-  140 MB. What remains open is making an unchecked calendar day answerable without
-  loading its whole timetable — a per-route day bitmap in each shard index would do
-  it far more cheaply than the trains themselves.
+- **Big interchanges are still expensive.** Shards are per STATION, holding a whole
+  month each, so an ordinary station is a few kilobytes and its calendar is complete
+  at once. But a month of Bruxelles-Midi is 444k legs (~2.3 MB gzipped), because
+  nearly every Belgian train touches it. Searches through such a hub pay that. The
+  fix, if it becomes a problem, is splitting only the handful of outsized station
+  shards by half-month.
+- **Browse-everywhere over a foreign network needs the hubs.** "Where to?" via an
+  interchange needs that hub's own shard, so those are fetched in the background
+  after the first render, cheapest first, within a budget and in a few rounds
+  (each new pool resets the connection caches, so re-rendering per file was far too
+  slow). Results therefore improve for a few seconds after a search.
 - **Changing at a city aggregate.** `MIN_CONNECTION_MIN` is 15 minutes, applied to
   `PARIS (intramuros)` as if it were one station. A Belgian arrival at Nord and a
   German departure from Est 20 minutes later will be offered as a valid change. This

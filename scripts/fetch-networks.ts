@@ -34,6 +34,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Unzip, UnzipInflate } from "fflate";
 import { encodeShard, type EncodableTrain } from "../src/data/shard";
+import { stationFileName } from "../src/data/stationShard";
 import {
   buildCrosswalk,
   canonicalStationId,
@@ -340,8 +341,9 @@ interface ConvertStats {
   stations: number;
   major: number;
   pairs: number;
-  days: number;
+  files: number;
   bytes: number;
+  biggest: { id: string; bytes: number };
 }
 
 async function convert(net: Network, zipPath: string, cw: Crosswalk, today: string): Promise<ConvertStats> {
@@ -520,8 +522,11 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
   // --- emit --------------------------------------------------------------------
   const outDir = path.join(OUT_ROOT, net.id);
   fs.mkdirSync(outDir, { recursive: true });
+  // Clear the previous run so a station the feed has dropped doesn't linger.
   for (const f of fs.readdirSync(outDir)) {
-    if (f.endsWith(".json")) fs.unlinkSync(path.join(outDir, f));
+    const full = path.join(outDir, f);
+    if (f.endsWith(".json")) fs.unlinkSync(full);
+    else if (f === "s") fs.rmSync(full, { recursive: true, force: true });
   }
 
   // Coordinates for every allowlisted station, so foreign results reach the map.
@@ -555,25 +560,24 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
     });
   }
 
-  const days: { date: string; count: number }[] = [];
-  let bytes = 0;
-  let pairTotal = 0;
-
+  // Collect every leg of the window first, then group by station. A station's shard
+  // must span the whole window (that is what makes a 30-day calendar answerable from
+  // one fetch), so nothing can be written until all days are expanded.
+  const legs: EncodableTrain[] = [];
   for (const date of windowDates) {
-    const trains: EncodableTrain[] = [];
     for (const [tripId, list] of tripStops) {
       const service = tripService.get(tripId);
       if (!service || !runsOn(service, date)) continue;
       // Only the allowlisted calls, in order — pairs are drawn from these.
       const calls: { id: string; arr: number; dep: number }[] = [];
-      for (const s of list) {
-        const info = stops.get(s.stopId);
+      for (const st of list) {
+        const info = stops.get(st.stopId);
         if (!info) continue;
         const id = canonicalStationId(bestName(info), cw.byName);
         if (!allow.has(id)) continue;
         // A trip can call twice at one canonical id (a city aggregate); keep the first.
         if (calls.length && calls[calls.length - 1]?.id === id) continue;
-        calls.push({ id, arr: s.arr, dep: s.dep });
+        calls.push({ id, arr: st.arr, dep: st.dep });
       }
       const routeId = tripRoute.get(tripId) ?? "";
       const category = routeLabel.get(routeId) ?? "";
@@ -596,7 +600,8 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
           const arriveMin = to.arr;
           const dur = arriveMin - departMin;
           if (dur <= 0 || dur > MAX_LEG_MIN) continue;
-          trains.push({
+          legs.push({
+            date,
             origin: from.id,
             destination: to.id,
             departMin,
@@ -607,37 +612,69 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
         }
       }
     }
-    if (trains.length === 0) continue;
-    pairTotal += trains.length;
-    const shard = encodeShard(date, trains, {
+  }
+
+  // Group into one bucket per station, each leg filed under BOTH its endpoints. The
+  // duplication is the point: "which trains leave X" and "which trains reach Y" are
+  // both first-class questions here, and one file answers either without a second
+  // reverse index to build and keep in step.
+  const byStation = new Map<string, EncodableTrain[]>();
+  for (const leg of legs) {
+    for (const id of [leg.origin, leg.destination]) {
+      const bucket = byStation.get(id);
+      if (bucket) bucket.push(leg);
+      else byStation.set(id, [leg]);
+    }
+  }
+
+  const stationsDir = path.join(outDir, "s");
+  fs.mkdirSync(stationsDir, { recursive: true });
+  let bytes = 0;
+  let biggest = { id: "", bytes: 0 };
+  const counts: Record<string, number> = {};
+  for (const [id, bucket] of byStation) {
+    const shard = encodeShard(bucket, {
       source: net.id,
       operator: net.operator,
       // No foreign network has a MAX seat, so every one of these trains is paid.
       free: false,
     });
     const json = JSON.stringify(shard);
-    fs.writeFileSync(path.join(outDir, `${date}.json`), json, "utf-8");
+    fs.writeFileSync(path.join(stationsDir, stationFileName(id)), json, "utf-8");
     bytes += json.length;
-    days.push({ date, count: trains.length });
+    counts[id] = bucket.length;
+    if (json.length > biggest.bytes) biggest = { id, bytes: json.length };
   }
 
   fs.writeFileSync(
     path.join(outDir, "index.json"),
     JSON.stringify({
-      v: 1,
+      v: 2,
       source: net.id,
       operator: net.operator,
       country: net.country,
       attribution: net.source,
       updatedAt: new Date().toISOString(),
+      from: windowDates[0],
+      to: windowDates[windowDates.length - 1],
       hubs,
-      days,
+      // Leg count per station: the app reads it to fetch cheap files first and to
+      // warn before pulling a very large one.
+      counts,
     }),
     "utf-8",
   );
   fs.writeFileSync(path.join(outDir, "stations.json"), JSON.stringify([...stationOut.values()]), "utf-8");
 
-  return { trips: tripStops.size, stations: allow.size, major: major.size, pairs: pairTotal, days: days.length, bytes };
+  return {
+    trips: tripStops.size,
+    stations: allow.size,
+    major: major.size,
+    pairs: legs.length,
+    files: byStation.size,
+    bytes,
+    biggest,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -671,8 +708,9 @@ async function main(): Promise<void> {
 
       const stats = await convert(net, zipPath, cw, today);
       console.log(
-        `  → ${stats.days} days, ${stats.stations} stations (${stats.major} major), ${stats.pairs} legs, ` +
-          `${(stats.bytes / 1_048_576).toFixed(1)} MB (${(stats.bytes / Math.max(stats.days, 1) / 1024).toFixed(0)} KB/day)`,
+        `  → ${stats.stations} stations (${stats.major} major), ${stats.pairs} legs, ` +
+          `${stats.files} station files, ${(stats.bytes / 1_048_576).toFixed(0)} MB total, ` +
+          `biggest ${stats.biggest.id} ${(stats.biggest.bytes / 1_048_576).toFixed(1)} MB`,
       );
     } catch (err) {
       // One broken feed must not cost the others: the app treats a missing network as

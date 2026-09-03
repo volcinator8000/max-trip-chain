@@ -176,7 +176,6 @@ export const zh: Dict = {
   cal_legend_nearby_both: "紫色 = 两端均为邻近车站",
   cal_available: "可用",
   cal_unavailable: "不可用",
-  cal_unchecked: "未检查 — 该日的境外时刻表尚未加载",
   link_newtab: "（新标签页）",
   rt_outbound: "去程",
   rt_inbound: "返程",

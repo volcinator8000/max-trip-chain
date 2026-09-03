@@ -2,31 +2,32 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { MaxTrain, SearchQuery } from "../src/types";
 import { encodeShard, decodeShard, SHARD_VERSION, type EncodableTrain } from "../src/data/shard";
 import {
-  resultDates,
+  stationsForQuery,
   calendarDates,
-  datesLoaded,
-  loadExtraTrains,
+  loadStationTrains,
   buildPool,
   resetSources,
   BOOKING_WINDOW_DAYS,
 } from "../src/data/sources";
+import { stationFileName } from "../src/data/stationShard";
 import { heldPasses } from "../src/data/passes";
 import type { DatasetProfile } from "../src/data/profile";
 import { filterTrains } from "../src/core/search";
 import { findJourneys } from "../src/core/connections";
 
+const D = "2026-07-01";
 const rows: EncodableTrain[] = [
-  { origin: "ALPHA", destination: "BETA", departMin: 480, arriveMin: 600, trainNo: "1", category: "ICE" },
-  { origin: "BETA", destination: "GAMMA", departMin: 700, arriveMin: 800, trainNo: "2" },
+  { date: D, origin: "ALPHA", destination: "BETA", departMin: 480, arriveMin: 600, trainNo: "1", category: "ICE" },
+  { date: D, origin: "BETA", destination: "GAMMA", departMin: 700, arriveMin: 800, trainNo: "2" },
   // Crosses midnight: the encoder is handed an already-absolute arrival.
-  { origin: "ALPHA", destination: "GAMMA", departMin: 1380, arriveMin: 1490, trainNo: "3", category: "ICE" },
+  { date: D, origin: "ALPHA", destination: "GAMMA", departMin: 1380, arriveMin: 1490, trainNo: "3", category: "ICE" },
 ];
 
 const META = { source: "demo", operator: "DEMO", free: false };
 
 describe("shard codec", () => {
   it("round-trips trains through the compact format", () => {
-    const decoded = decodeShard(encodeShard("2026-07-01", rows, META));
+    const decoded = decodeShard(encodeShard(rows, META));
     expect(decoded).toHaveLength(3);
     const [first] = decoded;
     expect(first).toMatchObject({
@@ -44,7 +45,7 @@ describe("shard codec", () => {
   });
 
   it("interns repeated station and category names into string tables", () => {
-    const shard = encodeShard("2026-07-01", rows, META);
+    const shard = encodeShard(rows, META);
     // 3 distinct stations across 3 trains, and 1 distinct category across 2 uses.
     expect(shard.stations).toEqual(["ALPHA", "BETA", "GAMMA"]);
     expect(shard.categories).toEqual(["ICE"]);
@@ -54,14 +55,14 @@ describe("shard codec", () => {
   });
 
   it("keeps a past-midnight arrival absolute, so duration stays positive", () => {
-    const overnight = decodeShard(encodeShard("2026-07-01", rows, META))[2];
+    const overnight = decodeShard(encodeShard(rows, META))[2];
     expect(overnight?.arriveMin).toBe(1490);
     expect(overnight?.arrive).toBe("00:50");
     expect(overnight?.durationMin).toBe(110);
   });
 
   it("marks shard trains as paid, not free", () => {
-    const [train] = decodeShard(encodeShard("2026-07-01", rows, META));
+    const [train] = decodeShard(encodeShard(rows, META));
     expect(train?.free).toBe(false);
     expect(train?.paid).toBe(true);
     // The codec does NOT decide usability — the loader does, once the user opts in.
@@ -73,48 +74,34 @@ describe("shard codec", () => {
     expect(decodeShard({ v: SHARD_VERSION + 1, date: "2026-07-01", rows: [], stations: [] })).toEqual([]);
     expect(decodeShard({ v: SHARD_VERSION, date: "2026-07-01" })).toEqual([]);
     // A row pointing outside the string table is skipped, not fatal.
-    const bad = { ...encodeShard("2026-07-01", rows, META), rows: [[99, 0, 1, 2, "x", -1]] };
+    const bad = { ...encodeShard(rows, META), rows: [[99, 0, 1, 2, "x", -1]] };
     expect(decodeShard(bad)).toEqual([]);
   });
 });
 
-describe("resultDates", () => {
+describe("stationsForQuery", () => {
   const base: SearchQuery = { mode: "od", date: "2026-07-01", card: "jeune", maxConnections: 1 };
 
-  it("loads only the days the results span, not the whole booking window", () => {
-    // The whole point: one Belgian day decodes to ~99k trains and ~25 MB of heap, so
-    // eagerly loading 30 of them (times several networks) exhausts memory.
-    const dates = resultDates(base, "2026-07-01");
-    expect(dates.length).toBeLessThan(BOOKING_WINDOW_DAYS);
-    expect(dates).toContain("2026-07-01");
-    // The following day comes too: a journey can run past midnight or wait at a hub.
-    expect(dates).toContain("2026-07-02");
+  it("names the stations a search mentions — the shards it needs", () => {
+    // The whole economy of the design: a search fetches the places it names, not a
+    // day of every train in a country.
+    const ids = stationsForQuery({ ...base, origin: "A", destination: "B", via: "H" });
+    expect(new Set(ids)).toEqual(new Set(["A", "B", "H"]));
   });
 
-  it("covers the flexible-date sweep around the chosen day", () => {
-    const dates = resultDates({ ...base, flexDays: 2 }, "2026-07-01");
-    for (const d of ["2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03"]) {
-      expect(dates).toContain(d);
-    }
+  it("covers tour cities and every multi-city leg endpoint", () => {
+    const ids = stationsForQuery({
+      ...base,
+      mode: "tour",
+      origin: "A",
+      cities: ["C1", "C2"],
+      legs: [{ from: "L1", to: "L2", date: "2026-07-04" }],
+    });
+    for (const id of ["A", "C1", "C2", "L1", "L2"]) expect(ids).toContain(id);
   });
 
-  it("covers a return, a tour end and every multi-city leg", () => {
-    const dates = resultDates(
-      { ...base, returnDate: "2026-07-05", tourEndDate: "2026-07-09", legs: [{ from: "A", to: "B", date: "2026-08-20" }] },
-      "2026-07-01",
-    );
-    for (const d of ["2026-07-05", "2026-07-09", "2026-08-20"]) expect(dates).toContain(d);
-  });
-
-  it("widens with the trip-span setting, which lets a journey wait days at a hub", () => {
-    const dates = resultDates({ ...base, maxSpanDays: 4 }, "2026-07-01");
-    for (const d of ["2026-07-02", "2026-07-03", "2026-07-04"]) expect(dates).toContain(d);
-  });
-
-  it("returns ascending dates with no duplicates", () => {
-    const dates = resultDates({ ...base, flexDays: 3, returnDate: "2026-07-02" }, "2026-07-01");
-    expect(new Set(dates).size).toBe(dates.length);
-    expect([...dates].sort()).toEqual(dates);
+  it("returns nothing for a query with no stations yet", () => {
+    expect(stationsForQuery(base)).toEqual([]);
   });
 });
 
@@ -129,7 +116,7 @@ describe("calendarDates", () => {
 
 describe("buildPool", () => {
   const free: MaxTrain[] = [];
-  const extra = decodeShard(encodeShard("2026-07-01", rows, META));
+  const extra = decodeShard(encodeShard(rows, META));
   const pool = (over: Partial<Parameters<typeof buildPool>[0]> = {}) =>
     buildPool({
       free,
@@ -195,13 +182,13 @@ describe("paid trains in the core search", () => {
   // The whole design rests on this: the core has no idea what "paid" means, it only
   // reads `available`. So marking shard trains usable must make them searchable
   // through every existing code path, with no paid-aware branch anywhere.
-  const paidPool: MaxTrain[] = decodeShard(encodeShard("2026-07-01", rows, META)).map((t) => ({
+  const paidPool: MaxTrain[] = decodeShard(encodeShard(rows, META)).map((t) => ({
     ...t,
     available: true,
   }));
 
   it("excludes paid trains while they are not marked usable", () => {
-    const unusable = decodeShard(encodeShard("2026-07-01", rows, META));
+    const unusable = decodeShard(encodeShard(rows, META));
     expect(filterTrains(unusable, { origin: "ALPHA" })).toHaveLength(0);
   });
 
@@ -224,7 +211,7 @@ describe("paid trains in the core search", () => {
   });
 });
 
-describe("loadExtraTrains", () => {
+describe("loadStationTrains", () => {
   const profile = { id: "demo", shardDir: "/data/demo/" } as DatasetProfile;
   const originalFetch = globalThis.fetch;
 
@@ -233,7 +220,7 @@ describe("loadExtraTrains", () => {
     globalThis.fetch = originalFetch;
   });
 
-  /** Serve an index plus shards from a map of url → body. */
+  /** Serve an index plus station shards from a map of url → body. */
   function serve(bodies: Record<string, unknown>): void {
     globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
       const key = String(url);
@@ -242,74 +229,73 @@ describe("loadExtraTrains", () => {
     }) as unknown as typeof fetch;
   }
 
-  it("fetches only the days the index says exist, and marks them usable", async () => {
+  const url = (id: string) => `/data/demo/s/${stationFileName(id)}`;
+
+  it("fetches a station's shard and marks its trains usable", async () => {
     serve({
-      "/data/demo/index.json": { v: 1, days: [{ date: "2026-07-01", count: 3 }] },
-      "/data/demo/2026-07-01.json": encodeShard("2026-07-01", rows, META),
+      "/data/demo/index.json": { v: 2, hubs: ["BETA"], counts: { ALPHA: 3 } },
+      [url("ALPHA")]: encodeShard(rows, META),
     });
-    const extra = await loadExtraTrains(profile, ["2026-07-01", "2026-07-02"]);
+    const extra = await loadStationTrains(profile, ["ALPHA"]);
     expect(extra).toHaveLength(3);
     expect(extra.every((t) => t.available)).toBe(true);
     expect(extra.every((t) => t.paid)).toBe(true);
-    // 2026-07-02 is absent from the index, so it must not have been requested.
-    const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
-    expect(calls).not.toContain("/data/demo/2026-07-02.json");
   });
 
-  it("caches a day, so a second search does not refetch it", async () => {
+  it("does not request a station the index says it has nothing for", async () => {
+    serve({ "/data/demo/index.json": { v: 2, counts: { ALPHA: 3 } } });
+    await loadStationTrains(profile, ["NOWHERE"]);
+    const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
+    expect(calls).not.toContain(url("NOWHERE"));
+  });
+
+  it("removes the duplicates that filing a leg under both endpoints creates", async () => {
+    // A leg lives in its origin's shard AND its destination's. Fetching both must not
+    // offer the same train twice.
     serve({
-      "/data/demo/index.json": { v: 1, days: [{ date: "2026-07-01", count: 3 }] },
-      "/data/demo/2026-07-01.json": encodeShard("2026-07-01", rows, META),
+      "/data/demo/index.json": { v: 2, counts: { ALPHA: 3, BETA: 2 } },
+      [url("ALPHA")]: encodeShard(rows, META),
+      [url("BETA")]: encodeShard(rows.slice(0, 2), META),
     });
-    await loadExtraTrains(profile, ["2026-07-01"]);
-    await loadExtraTrains(profile, ["2026-07-01"]);
+    const extra = await loadStationTrains(profile, ["ALPHA", "BETA"]);
+    expect(extra).toHaveLength(3);
+    expect(new Set(extra.map((t) => t.trainNo)).size).toBe(3);
+  });
+
+  it("caches a station, so a second search does not refetch it", async () => {
+    serve({
+      "/data/demo/index.json": { v: 2, counts: { ALPHA: 3 } },
+      [url("ALPHA")]: encodeShard(rows, META),
+    });
+    await loadStationTrains(profile, ["ALPHA"]);
+    await loadStationTrains(profile, ["ALPHA"]);
     const shardCalls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
       .map((c) => String(c[0]))
-      .filter((u) => u.endsWith("2026-07-01.json"));
+      .filter((u) => u === url("ALPHA"));
     expect(shardCalls).toHaveLength(1);
-  });
-
-  it("keeps the decoded-day cache bounded, so browsing the calendar can't exhaust memory", async () => {
-    // More days than the cache can hold. The limit is deliberately above a full
-    // booking window, so that a small full-window source keeps its whole month while
-    // a heavy per-day one still gets bounded.
-    const days = Array.from({ length: 50 }, (_, i) => {
-      const d = new Date(Date.UTC(2026, 6, 1) + i * 86_400_000);
-      return d.toISOString().slice(0, 10);
-    });
-    const bodies: Record<string, unknown> = {
-      "/data/demo/index.json": { v: 1, days: days.map((date) => ({ date, count: 3 })) },
-    };
-    for (const d of days) bodies[`/data/demo/${d}.json`] = encodeShard(d, rows, META);
-    serve(bodies);
-    for (const d of days) await loadExtraTrains(profile, [d]);
-    // Far fewer than the 20 requested are still held.
-    const still = datesLoaded(["demo"], days);
-    expect(still.size).toBeLessThan(days.length);
-    expect(still.size).toBeGreaterThan(0);
-    // And it is the most recent days that survived, not the first ones.
-    expect(still.has(days[days.length - 1] as string)).toBe(true);
-    expect(still.has(days[0] as string)).toBe(false);
-  });
-
-  it("reports which days are loaded, so the calendar can admit what it hasn't checked", async () => {
-    serve({
-      "/data/demo/index.json": { v: 1, days: [{ date: "2026-07-01", count: 3 }] },
-      "/data/demo/2026-07-01.json": encodeShard("2026-07-01", rows, META),
-    });
-    await loadExtraTrains(profile, ["2026-07-01"]);
-    const loaded = datesLoaded(["demo"], ["2026-07-01", "2026-07-02"]);
-    expect(loaded.has("2026-07-01")).toBe(true);
-    expect(loaded.has("2026-07-02")).toBe(false);
   });
 
   it("degrades to no extra trains when the index is missing", async () => {
     serve({});
-    await expect(loadExtraTrains(profile, ["2026-07-01"])).resolves.toEqual([]);
+    await expect(loadStationTrains(profile, ["ALPHA"])).resolves.toEqual([]);
   });
 
   it("degrades to no extra trains for a source with no shard directory", async () => {
     serve({});
-    await expect(loadExtraTrains({ id: "none" } as DatasetProfile, ["2026-07-01"])).resolves.toEqual([]);
+    await expect(loadStationTrains({ id: "none" } as DatasetProfile, ["ALPHA"])).resolves.toEqual([]);
+  });
+});
+
+describe("stationFileName", () => {
+  it("is stable, and safe as a file name", () => {
+    expect(stationFileName("PARIS (intramuros)")).toBe(stationFileName("PARIS (intramuros)"));
+    expect(stationFileName("PARIS (intramuros)")).toMatch(/^[a-z0-9-]+\.json$/);
+  });
+
+  it("separates stations whose slugs would collide", () => {
+    // Accents and punctuation fold away, so identity has to come from the hash —
+    // otherwise one station's trains would be served for another.
+    expect(stationFileName("LIEGE GUILLEMINS")).not.toBe(stationFileName("LIÈGE-GUILLEMINS"));
+    expect(stationFileName("A".repeat(60) + "1")).not.toBe(stationFileName("A".repeat(60) + "2"));
   });
 });
