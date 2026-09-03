@@ -7,8 +7,8 @@ import type { SearchQuery, Journey } from "../types";
 import type { FilterOptions } from "./search";
 import type { ConnectionOptions } from "./connections";
 import type { GetawayOptions } from "./getaways";
-import { HUB_STATIONS, OVERNIGHT_MAX_CONNECTION_MIN } from "../config";
-import { journeySpanDays } from "./connections";
+import { OVERNIGHT_MAX_CONNECTION_MIN } from "../config";
+import { journeySpanDays, getDefaultHubs } from "./connections";
 import { stayNights } from "./roundtrip";
 import { dayIndex } from "../util/time";
 
@@ -39,7 +39,7 @@ export function odConnOptsFor(
   const connOpts: ConnectionOptions = {
     ...filterOptsFor(q),
     maxConnections: viaId ? Math.max(1, q.maxConnections) : q.maxConnections,
-    ...(viaId ? { hubs: [...HUB_STATIONS, viaId] } : {}),
+    ...(viaId ? { hubs: [...getDefaultHubs(), viaId] } : {}),
   };
   return { connOpts, passesVia: (j) => !viaId || j.hubs.includes(viaId) };
 }

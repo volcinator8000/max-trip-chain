@@ -45,6 +45,13 @@ export interface Settings {
    * paid shards (see src/data/sources.ts) that the free snapshot deliberately omits.
    */
   showPaid: boolean;
+  /**
+   * Profile ids of the foreign networks to search alongside SNCF ("db-fernverkehr",
+   * "sncb", "cfl", "ns"). Empty by default: each one adds a few MB of day shards to
+   * fetch, so it is the user's call which borders they care about. SNCF is always
+   * searched and never appears here.
+   */
+  networks: string[];
 }
 
 export type Density = "comfortable" | "compact";
@@ -93,6 +100,7 @@ export function loadSettings(): Settings {
     reduceMotion: s.reduceMotion === true,
     map: s.map !== false, // default on
     showPaid: s.showPaid === true, // default off — free seats are the point of the app
+    networks: Array.isArray(s.networks) ? s.networks.filter((n): n is string => typeof n === "string") : [],
   };
 }
 

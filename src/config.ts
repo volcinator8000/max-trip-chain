@@ -62,6 +62,9 @@ export const META_URL = `${BASE}data/meta.json`;
  */
 export const PAID_SHARD_DIR = `${BASE}data/paid/`;
 
+/** Root under which each foreign network publishes its shards, index and stations. */
+export const NETWORK_DATA_BASE = `${BASE}data/`;
+
 export const SNCF_CONNECT_URL = "https://www.sncf-connect.com/";
 
 export const SITE_URL = "https://volcinator8000.github.io/max-trip-chain/";

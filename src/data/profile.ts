@@ -1,4 +1,12 @@
-import { DATA_URL, META_URL, PAID_SHARD_DIR, SNCF_API_URL, HUB_STATIONS, NON_BOOKABLE_PATTERNS } from "../config";
+import {
+  DATA_URL,
+  META_URL,
+  PAID_SHARD_DIR,
+  NETWORK_DATA_BASE,
+  SNCF_API_URL,
+  HUB_STATIONS,
+  NON_BOOKABLE_PATTERNS,
+} from "../config";
 
 /**
  * A data-source PROFILE: everything about reading and judging ONE train dataset.
@@ -17,9 +25,15 @@ export interface DatasetProfile {
   operator: string;
   /** ISO 3166-1 alpha-2 country the network is centred on ("FR", "DE", …). */
   country: string;
-  /** Base-relative snapshot + metadata URLs (served with the static site). */
-  dataUrl: string;
-  metaUrl: string;
+  /**
+   * Base-relative snapshot + metadata URLs, for a source that publishes one whole
+   * committed file. Absent for the shard-only foreign networks, which have no
+   * snapshot — everything they offer arrives as day shards.
+   */
+  dataUrl?: string;
+  metaUrl?: string;
+  /** Base-relative station registry (id/label/lat/lng), for shard-only sources. */
+  stationsUrl?: string;
   /**
    * Base-relative directory of this source's compact per-day shards (see
    * {@link file://./shard.ts}), or undefined when it has none. SNCF publishes its
@@ -29,15 +43,19 @@ export interface DatasetProfile {
   shardDir?: string;
   /** Upstream open-data API (optional; used by the data-refresh script). */
   apiUrl?: string;
-  /** Pull the core fields out of one raw record (whatever shape the source uses). */
-  read: (r: RawSourceRecord) => ReadFields;
+  /** Pull the core fields out of one raw record — only for sources with a snapshot. */
+  read?: (r: RawSourceRecord) => ReadFields;
   /**
    * Does this record have a bookable / highlighted seat for this source's pass?
    * SNCF: a free MAX seat (`od_happy_card === "OUI"`). A source with no pass concept
    * can simply return `true`.
    */
-  isReservable: (r: RawSourceRecord) => boolean;
-  /** Interchange hubs used to build connecting journeys in this network. */
+  isReservable?: (r: RawSourceRecord) => boolean;
+  /**
+   * Interchange hubs used to build connecting journeys in this network. Foreign
+   * networks leave this empty and publish their hubs alongside their data instead
+   * (see the `hubs` field of a shard index), so the list stays right as feeds change.
+   */
   hubs: string[];
   /**
    * Station-name substrings that appear in the feed but are NOT bookable with the
@@ -45,6 +63,16 @@ export interface DatasetProfile {
    * sources with no such exclusions.
    */
   nonBookablePatterns: string[];
+  /**
+   * Where to send a traveller to actually book. SNCF Connect only sells SNCF, so a
+   * German or Belgian leg needs its own operator's site.
+   */
+  bookingUrl?: (origin: string, destination: string, date: string, time?: string) => string;
+  /**
+   * True when this source is the free-MAX core of the app rather than an extra.
+   * The SNCF profile is always on; every other network is opt-in.
+   */
+  core?: boolean;
 }
 
 /** One raw record before normalization — shape varies per source, so it's untyped. */
@@ -92,4 +120,71 @@ export const SNCF_PROFILE: DatasetProfile = {
   isReservable: (r) => str(r.od_happy_card)?.toUpperCase() === "OUI",
   hubs: HUB_STATIONS,
   nonBookablePatterns: NON_BOOKABLE_PATTERNS,
+  core: true,
 };
+
+/**
+ * The foreign networks, built from public GTFS feeds by scripts/fetch-networks.ts.
+ *
+ * They are shard-only: there is no committed snapshot and no raw record shape, because
+ * the converter has already normalized them into the shared shard format. None of them
+ * has a MAX-style free seat, so every one of their trains is a paid one — which is why
+ * enabling a network is enough on its own, without also turning on paid SNCF trains.
+ *
+ * Booking links go to each operator's own site: SNCF Connect does not sell a Dutch
+ * domestic ticket, and pretending otherwise would send travellers to a dead end.
+ */
+export const NETWORK_PROFILES: DatasetProfile[] = [
+  {
+    id: "db-fernverkehr",
+    operator: "DB",
+    country: "DE",
+    shardDir: `${NETWORK_DATA_BASE}db-fernverkehr/`,
+    stationsUrl: `${NETWORK_DATA_BASE}db-fernverkehr/stations.json`,
+    hubs: [],
+    nonBookablePatterns: [],
+    bookingUrl: (o, d, date, time) =>
+      `https://www.bahn.de/buchung/fahrplan/suche#sts=true&so=${encodeURIComponent(o)}&zo=${encodeURIComponent(d)}&hd=${date}T${(time ?? "08:00").padStart(5, "0")}:00`,
+  },
+  {
+    id: "sncb",
+    operator: "SNCB",
+    country: "BE",
+    shardDir: `${NETWORK_DATA_BASE}sncb/`,
+    stationsUrl: `${NETWORK_DATA_BASE}sncb/stations.json`,
+    hubs: [],
+    nonBookablePatterns: [],
+    bookingUrl: (o, d, date) =>
+      `https://www.belgiantrain.be/en/tickets-and-railcards/community/search?from=${encodeURIComponent(o)}&to=${encodeURIComponent(d)}&date=${date}`,
+  },
+  {
+    id: "cfl",
+    operator: "CFL",
+    country: "LU",
+    shardDir: `${NETWORK_DATA_BASE}cfl/`,
+    stationsUrl: `${NETWORK_DATA_BASE}cfl/stations.json`,
+    hubs: [],
+    nonBookablePatterns: [],
+    // Public transport within Luxembourg is free of charge, so there is nothing to buy.
+    bookingUrl: () => "https://www.mobiliteit.lu/",
+  },
+  {
+    id: "ns",
+    operator: "NS",
+    country: "NL",
+    shardDir: `${NETWORK_DATA_BASE}ns/`,
+    stationsUrl: `${NETWORK_DATA_BASE}ns/stations.json`,
+    hubs: [],
+    nonBookablePatterns: [],
+    bookingUrl: (o, d) =>
+      `https://www.ns.nl/en/journeyplanner/#/?vertrek=${encodeURIComponent(o)}&aankomst=${encodeURIComponent(d)}`,
+  },
+];
+
+/** Every profile the app knows, SNCF first. */
+export const ALL_PROFILES: DatasetProfile[] = [SNCF_PROFILE, ...NETWORK_PROFILES];
+
+/** Look a profile up by id — used to badge a train with its operator. */
+export function profileById(id: string | undefined): DatasetProfile | undefined {
+  return id ? ALL_PROFILES.find((p) => p.id === id) : undefined;
+}

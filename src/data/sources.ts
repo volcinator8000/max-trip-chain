@@ -34,10 +34,20 @@ export const BOOKING_WINDOW_DAYS = 30;
 interface ShardIndex {
   v: number;
   days: { date: string; count: number }[];
+  /** The network's busiest stations, published as its interchange hubs. */
+  hubs?: string[];
 }
 
-/** Per-source: the set of dates that have a shard, or null while unknown. */
-const indexCache = new Map<string, Promise<Set<string> | null>>();
+/** What a source's index tells us: which days exist, and where trains can change. */
+interface SourceIndex {
+  dates: Set<string>;
+  hubs: string[];
+}
+
+/** Per-source index, or null when the source published nothing. */
+const indexCache = new Map<string, Promise<SourceIndex | null>>();
+/** Hubs of every source loaded so far, so connection search can change trains there. */
+const loadedHubs = new Map<string, string[]>();
 /** Per-source-and-date decoded shards, so a day is fetched at most once a session. */
 const shardCache = new Map<string, Promise<MaxTrain[]>>();
 
@@ -56,17 +66,38 @@ async function fetchJson<T>(url: string): Promise<T | null> {
  * the deploy may not have generated shards — and callers then skip the source
  * entirely rather than firing a burst of 404s.
  */
-function shardDates(profile: DatasetProfile): Promise<Set<string> | null> {
+function shardIndex(profile: DatasetProfile): Promise<SourceIndex | null> {
   const cached = indexCache.get(profile.id);
   if (cached) return cached;
   const dir = profile.shardDir;
-  const p: Promise<Set<string> | null> = dir
-    ? fetchJson<ShardIndex>(`${dir}index.json`).then((idx) =>
-        idx && Array.isArray(idx.days) ? new Set(idx.days.map((d) => d.date)) : null,
-      )
+  const p: Promise<SourceIndex | null> = dir
+    ? fetchJson<ShardIndex>(`${dir}index.json`).then((idx) => {
+        if (!idx || !Array.isArray(idx.days)) return null;
+        // A network's hubs come from its own data, not from a list in the app: the
+        // connection search only ever changes trains at a hub, so a network with none
+        // would offer direct trains and nothing else.
+        const hubs = Array.isArray(idx.hubs) ? idx.hubs : profile.hubs;
+        loadedHubs.set(profile.id, hubs);
+        return { dates: new Set(idx.days.map((d) => d.date)), hubs };
+      })
     : Promise.resolve(null);
   indexCache.set(profile.id, p);
   return p;
+}
+
+/**
+ * Every hub the search may change trains at: the French list, plus the published hubs
+ * of each network whose data is loaded. Without the foreign hubs a cross-border search
+ * could only ever return a direct train.
+ */
+export function activeHubs(baseHubs: string[]): string[] {
+  const all = new Set(baseHubs);
+  for (const hubs of loadedHubs.values()) {
+    for (const h of hubs) all.add(h);
+  }
+  // Sorted so the value is stable: it feeds the connection cache key, and a set whose
+  // order wandered would miss the cache on every search.
+  return [...all].sort();
 }
 
 /**
@@ -97,12 +128,36 @@ function loadShard(profile: DatasetProfile, date: string): Promise<MaxTrain[]> {
  */
 export async function loadExtraTrains(profile: DatasetProfile, dates: string[]): Promise<MaxTrain[]> {
   if (!profile.shardDir) return [];
-  const have = await shardDates(profile);
-  if (!have) return [];
-  const wanted = dates.filter((d) => have.has(d));
+  const idx = await shardIndex(profile);
+  if (!idx) return [];
+  const wanted = dates.filter((d) => idx.dates.has(d));
   if (wanted.length === 0) return [];
   const loaded = await Promise.all(wanted.map((d) => loadShard(profile, d)));
   return loaded.flat();
+}
+
+/**
+ * Load the extra trains for several sources at once, in parallel.
+ *
+ * A source that fails contributes nothing instead of failing the search — one network
+ * being down should cost you that network, not the trip.
+ */
+export async function loadAllExtraTrains(profiles: DatasetProfile[], dates: string[]): Promise<MaxTrain[]> {
+  const results = await Promise.all(
+    profiles.map((p) => loadExtraTrains(p, dates).catch(() => [] as MaxTrain[])),
+  );
+  return results.flat();
+}
+
+/** Station registries published by shard-only sources, so foreign results map. */
+export async function loadSourceStations(
+  profile: DatasetProfile,
+): Promise<{ id: string; label: string; lat: number; lng: number; country?: string }[]> {
+  if (!profile.stationsUrl) return [];
+  const list = await fetchJson<{ id: string; label: string; lat: number; lng: number; country?: string }[]>(
+    profile.stationsUrl,
+  );
+  return Array.isArray(list) ? list : [];
 }
 
 /**
@@ -160,6 +215,7 @@ export function searchPool(free: MaxTrain[], extra: MaxTrain[], key: string): Ma
 export function resetSources(): void {
   indexCache.clear();
   shardCache.clear();
+  loadedHubs.clear();
   poolKey = "";
   poolArr = null;
 }

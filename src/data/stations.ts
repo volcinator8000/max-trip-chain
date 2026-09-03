@@ -78,6 +78,12 @@ export class StationRegistry {
   private cityKeys: { key: string; info: CityInfo }[] = [];
   // Ids actually present in the loaded dataset (i.e. bookable).
   private present = new Set<string>();
+  // Ids a data source explicitly published (a foreign network's own station list).
+  // These are exempt from NON_BOOKABLE_PATTERNS: those patterns mean "the MAX pass
+  // doesn't cover this", which stops being a reason to hide a station once the
+  // operator that DOES serve it is switched on — Bruxelles-Midi is unreachable with
+  // MAX but perfectly reachable with SNCB.
+  private sourced = new Set<string>();
 
   constructor(stations: Station[]) {
     for (const s of stations) this.add(s);
@@ -150,6 +156,32 @@ export class StationRegistry {
     }
   }
 
+  /**
+   * Register stations published by a data source, with their real coordinates.
+   *
+   * Call before {@link addMissing}, which only invents minimal entries for ids it has
+   * never seen — a station added here keeps the coordinates the feed gave it instead
+   * of being guessed at from a city name, or left off the map entirely.
+   */
+  addStations(stations: { id: string; label: string; lat: number; lng: number; country?: string }[]): void {
+    for (const st of stations) {
+      if (!st.id) continue;
+      this.sourced.add(st.id);
+      this.present.add(st.id);
+      const existing = this.byId.get(st.id);
+      if (existing) {
+        // The curated registry wins on naming, but a source can still supply the
+        // coordinates it was missing.
+        if (!Number.isFinite(existing.lat) && Number.isFinite(st.lat)) {
+          existing.lat = st.lat;
+          existing.lng = st.lng;
+        }
+        continue;
+      }
+      this.add({ id: st.id, label: st.label || prettyLabel(st.id), lat: st.lat, lng: st.lng });
+    }
+  }
+
   get(id: string): Station | undefined {
     return this.byId.get(id);
   }
@@ -161,7 +193,7 @@ export class StationRegistry {
 
   /** Display-ready stations, one per label, preferring bookable / located ids. */
   list(): Station[] {
-    return this.dedupe(this.all().filter((s) => !isNonBookable(s.id)));
+    return this.dedupe(this.all().filter((s) => this.sourced.has(s.id) || !isNonBookable(s.id)));
   }
 
   label(id: string): string {

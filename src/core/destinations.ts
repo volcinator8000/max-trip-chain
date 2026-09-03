@@ -23,8 +23,10 @@ function group(trains: MaxTrain[], keyOf: (t: MaxTrain) => string): StationGroup
       station,
       trains: ts,
       count: ts.length,
-      earliestDepartMin: Math.min(...ts.map((t) => t.departMin)),
-      minDurationMin: Math.min(...ts.map((t) => t.durationMin)),
+      // Folded rather than Math.min(...list): the spread passes one argument per
+      // train, which overflows the stack once a route carries a large pool.
+      earliestDepartMin: ts.reduce((m, t) => (t.departMin < m ? t.departMin : m), Infinity),
+      minDurationMin: ts.reduce((m, t) => (t.durationMin < m ? t.durationMin : m), Infinity),
     }))
     .sort((a, b) => a.station.localeCompare(b.station));
 }

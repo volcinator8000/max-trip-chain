@@ -21,7 +21,7 @@ stops). The core search only ever sees the neutral, normalized train shape.
 
 ---
 
-## The V2 goal: trains beyond France 🇫🇷 → 🇪🇺
+## V2 (shipped): trains beyond France 🇫🇷 → 🇪🇺
 
 Add other countries' trains — **Germany (Deutsche Bahn), Spain (Renfe), …** — so one
 app covers more of Europe. SNCF remains the centre; other networks are added as
@@ -47,33 +47,44 @@ flowchart LR
 
 ---
 
-## What V2 needs (the phases)
+## What shipped, and how each phase was answered
 
-1. **Hubs through the profile.** Connections currently default to the French hub
-   list; make each source contribute its own interchange hubs.
-2. **Merge multiple sources into one pool.** Load SNCF + DB + … together and
-   normalize them into a single searchable set (instead of one profile at a time).
-3. **Define "bookable" for a non-MAX operator.** DB and Renfe have no MAX seat, so
-   each source decides what to highlight — e.g. "the train runs", a saver fare, or
-   its own pass concept — and the UI shows that honestly.
-4. **Foreign stations + cross-border rules.** Add coordinates for foreign stations
-   for the map, and revisit `NON_BOOKABLE_PATTERNS` (today it *excludes* Geneva,
-   Brussels, etc. — with more countries, some of those become bookable).
-5. **UI treatment of non-MAX trains.** A clear label / badge so a German or Spanish
-   train isn't mistaken for a free MAX seat, plus optional per-operator filters.
+1. **Hubs through the profile.** ✅ Each network publishes its own interchange hubs
+   in its shard index, derived from how many trips actually call there — so the list
+   stays right as feeds change instead of drifting in a hardcoded constant. The
+   connection search's default hub set is the union of the enabled networks'.
+2. **Merge multiple sources into one pool.** ✅ `src/data/sources.ts` builds one
+   array from the SNCF snapshot plus every enabled source. The core never learned
+   what a "source" is: it still reads a single `available` flag.
+3. **"Bookable" for a non-MAX operator.** ✅ No foreign network has a MAX seat, so
+   all of their trains are `paid` and badged as such, next to the operator's name.
+   `available` now means "usable by this search"; `free` records what a train is.
+4. **Foreign stations + cross-border rules.** ✅ Coordinates come straight from each
+   feed's `stops.txt`. `NON_BOOKABLE_PATTERNS` stays (MAX genuinely doesn't cover
+   Brussels) but no longer hides a station once an operator that *does* serve it is
+   switched on.
+5. **UI treatment of non-MAX trains.** ✅ A "Paid" chip and an operator chip, plus a
+   per-network switch in Settings.
+
+**The hard part was none of those.** It was **station identity**: a cross-border
+journey only exists if both feeds name the interchange identically, and they don't —
+SNCF publishes city aggregates ("PARIS (intramuros)"), DB names termini
+("Paris Est"), and a feed's *parent* station often carries a regional-transport name
+("S+U Berlin Hauptbahnhof") while its platforms carry the clean one. The answer is
+`data/crosswalk.json` plus aggressive name normalization, with the SNCF label as the
+canonical id wherever SNCF also serves the station.
 
 ---
 
-## Open questions (to settle when V2 starts)
+## Still open
 
-- **What counts as "available / highlighted"** for each non-MAX operator?
-- **Where does each country's data come from** — is there suitable open data (like
-  SNCF's `tgvmax`) for DB, Renfe, etc., and under what licence?
-- **Station coordinates** for foreign stations (for the map and distance sorting).
-- **Cross-border connections** — which foreign stations act as hubs, and how to keep
-  the connection search fast across a bigger network.
-- **Booking links** — a per-operator "book this" target instead of one SNCF Connect
-  deep link.
+- **Spain (Renfe) and Italy (Trenitalia)** — no equivalent open feed found yet.
+- **Great Britain** — the Belgian feed lists London St Pancras, but its Eurostar
+  services carry no future dates, so GB is effectively absent. Domestic GB timetables
+  need Rail Data Marketplace credentials, which a fork can add as a repo secret.
+- **Payload size.** Each network costs roughly 2-7 MB gzipped for a whole 30-day
+  window, because every mode draws a 30-day calendar. Loading the chosen day first
+  and filling the calendar in behind it would cut the first search dramatically.
 
 ---
 

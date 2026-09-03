@@ -40,6 +40,27 @@ export interface ConnectionOptions {
 // otherwise enumerate an enormous number of itineraries. We stop collecting at the
 // result cap, and bail the whole DFS if it expands too many nodes (pathological
 // fan-out), so the search always returns promptly.
+/**
+ * The hubs an intermediate stop may be, when a caller doesn't name its own set.
+ *
+ * Defaults to the French list and is widened by the app once foreign networks load
+ * (see activeHubs in src/data/sources.ts). It is module state rather than a parameter
+ * because every connection primitive would otherwise have to thread it through — and
+ * because both the page and the search worker must agree on it, or the worker's cache
+ * dump would answer for a different network.
+ */
+let defaultHubs: string[] = HUB_STATIONS;
+
+/** Set the hubs used when a caller supplies none. Must match in page and worker. */
+export function setDefaultHubs(hubs: string[]): void {
+  defaultHubs = hubs;
+}
+
+/** The hubs currently in force — shared with queryOpts so cache keys line up. */
+export function getDefaultHubs(): string[] {
+  return defaultHubs;
+}
+
 export const MAX_RESULTS = 200;
 const MAX_DFS_EXPANSIONS = 400_000;
 
@@ -161,7 +182,7 @@ export function findJourneys(
   opts: ConnectionOptions = {},
 ): Journey[] {
   const maxConn = opts.maxConnections ?? 1;
-  const hubSet = new Set(opts.hubs ?? HUB_STATIONS);
+  const hubSet = new Set(opts.hubs ?? defaultHubs);
   const minC = opts.minConnectionMin ?? MIN_CONNECTION_MIN;
   // Pool `span` calendar days (≥2). A multi-day span also raises the layover
   // ceiling to the span, so a hop can wait days at a hub, not just hours.
@@ -179,7 +200,12 @@ export function findJourneys(
   // index, then sorted.
   const idx = availableByDate(trains);
   let pool: MaxTrain[] = [];
-  for (let i = 0; i < span; i++) pool.push(...(idx.get(addDays(date, i)) ?? []));
+  // Appended one by one, NOT via push(...day): spreading an array into a call passes
+  // every element as an argument, and a merged multi-network pool can hold well over
+  // 100k trains on one date — enough to blow the call stack outright.
+  for (let i = 0; i < span; i++) {
+    for (const t of idx.get(addDays(date, i)) ?? []) pool.push(t);
+  }
   if (opts.trainType) pool = pool.filter((t) => (t.axe ?? "") === opts.trainType);
   if (opts.excludeNight) pool = pool.filter((t) => !isNightTrain(t));
   pool.sort((a, b) => absoluteMinute(a.date, a.departMin) - absoluteMinute(b.date, b.departMin));
@@ -296,7 +322,7 @@ export function reachableJourneys(
   opts: ConnectionOptions = {},
 ): Map<string, Journey> {
   const maxConn = opts.maxConnections ?? 1;
-  const hubSet = new Set(opts.hubs ?? HUB_STATIONS);
+  const hubSet = new Set(opts.hubs ?? defaultHubs);
   const minC = opts.minConnectionMin ?? MIN_CONNECTION_MIN;
   const span = Math.max(2, Math.floor(opts.spanDays ?? 2));
   const baseMaxC = opts.maxConnectionMin ?? MAX_CONNECTION_MIN;
@@ -309,7 +335,10 @@ export function reachableJourneys(
 
   const idx = availableByDate(trains);
   let pool: MaxTrain[] = [];
-  for (let i = 0; i < span; i++) pool.push(...(idx.get(addDays(date, i)) ?? []));
+  for (let i = 0; i < span; i++) {
+    // One by one — see findJourneys: a spread here would blow the stack on a big pool.
+    for (const t of idx.get(addDays(date, i)) ?? []) pool.push(t);
+  }
   if (opts.trainType) pool = pool.filter((t) => (t.axe ?? "") === opts.trainType);
   if (opts.excludeNight) pool = pool.filter((t) => !isNightTrain(t));
   pool.sort((a, b) => absoluteMinute(a.date, a.departMin) - absoluteMinute(b.date, b.departMin));
@@ -420,7 +449,7 @@ export function latestReturns(
   opts: ConnectionOptions = {},
 ): Map<string, Journey> {
   const maxConn = opts.maxConnections ?? 1;
-  const hubSet = new Set(opts.hubs ?? HUB_STATIONS);
+  const hubSet = new Set(opts.hubs ?? defaultHubs);
   const minC = opts.minConnectionMin ?? MIN_CONNECTION_MIN;
   const span = Math.max(2, Math.floor(opts.spanDays ?? 2));
   const baseMaxC = opts.maxConnectionMin ?? MAX_CONNECTION_MIN;
@@ -433,7 +462,10 @@ export function latestReturns(
 
   const idx = availableByDate(trains);
   let pool: MaxTrain[] = [];
-  for (let i = 0; i < span; i++) pool.push(...(idx.get(addDays(date, i)) ?? []));
+  for (let i = 0; i < span; i++) {
+    // One by one — see findJourneys: a spread here would blow the stack on a big pool.
+    for (const t of idx.get(addDays(date, i)) ?? []) pool.push(t);
+  }
   if (opts.trainType) pool = pool.filter((t) => (t.axe ?? "") === opts.trainType);
   if (opts.excludeNight) pool = pool.filter((t) => !isNightTrain(t));
 
@@ -532,7 +564,7 @@ export function reachableInto(
   opts: ConnectionOptions = {},
 ): Map<string, Journey> {
   const maxConn = opts.maxConnections ?? 1;
-  const hubSet = new Set(opts.hubs ?? HUB_STATIONS);
+  const hubSet = new Set(opts.hubs ?? defaultHubs);
   const minC = opts.minConnectionMin ?? MIN_CONNECTION_MIN;
   const span = Math.max(2, Math.floor(opts.spanDays ?? 2));
   const baseMaxC = opts.maxConnectionMin ?? MAX_CONNECTION_MIN;
@@ -545,7 +577,10 @@ export function reachableInto(
 
   const idx = availableByDate(trains);
   let pool: MaxTrain[] = [];
-  for (let i = 0; i < span; i++) pool.push(...(idx.get(addDays(date, i)) ?? []));
+  for (let i = 0; i < span; i++) {
+    // One by one — see findJourneys: a spread here would blow the stack on a big pool.
+    for (const t of idx.get(addDays(date, i)) ?? []) pool.push(t);
+  }
   if (opts.trainType) pool = pool.filter((t) => (t.axe ?? "") === opts.trainType);
   if (opts.excludeNight) pool = pool.filter((t) => !isNightTrain(t));
 

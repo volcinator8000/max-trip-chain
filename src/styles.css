@@ -1799,6 +1799,14 @@ a {
   border-color: transparent;
   font-weight: 640;
 }
+/* Which operator runs a train, when it isn't the SNCF core (DB, SNCB, NS, CFL). */
+.chip-operator {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border-strong);
+  font-weight: 640;
+  letter-spacing: 0.02em;
+}
 /* The "no free seat — show paid trains" nudge under an empty result list. */
 .paid-cta {
   margin-top: 0.5rem;

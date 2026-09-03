@@ -17,6 +17,9 @@ function matchesPattern(name: string, patterns: string[]): boolean {
  */
 export function normalizeRecord(r: RawRecord, profile: DatasetProfile = SNCF_PROFILE): MaxTrain | null {
   if (!r) return null;
+  // Shard-only sources (the foreign networks) publish already-normalized trains and
+  // never reach this path, so a profile without a reader simply has no records.
+  if (!profile.read) return null;
   const f = profile.read(r as unknown as RawSourceRecord);
   const origin = f.origin;
   const destination = f.destination;
@@ -28,7 +31,7 @@ export function normalizeRecord(r: RawRecord, profile: DatasetProfile = SNCF_PRO
   if (arriveMin < departMin) arriveMin += 1440; // crosses midnight
   // Bookable only if the source's rule says so AND neither endpoint is a
   // non-bookable (e.g. international) stop the pass doesn't cover.
-  const reservable = profile.isReservable(r as unknown as RawSourceRecord);
+  const reservable = profile.isReservable?.(r as unknown as RawSourceRecord) ?? false;
   const excluded =
     matchesPattern(origin, profile.nonBookablePatterns) ||
     matchesPattern(destination, profile.nonBookablePatterns);
@@ -79,8 +82,8 @@ async function fetchJson<T>(url: string): Promise<T> {
  * app always has something to show.
  */
 export async function loadDataset(profile: DatasetProfile = SNCF_PROFILE): Promise<Dataset> {
-  const meta = await fetchJson<DataMeta>(profile.metaUrl).catch(() => null);
-  let rows = await fetchJson<RawRecord[]>(profile.dataUrl).catch(() => null);
+  const meta = profile.metaUrl ? await fetchJson<DataMeta>(profile.metaUrl).catch(() => null) : null;
+  let rows = profile.dataUrl ? await fetchJson<RawRecord[]>(profile.dataUrl).catch(() => null) : null;
   let usedSample = false;
   // Guard the shape too: a malformed snapshot (e.g. an error object instead of an
   // array) would otherwise slip past a length check and crash normalizeRecords.

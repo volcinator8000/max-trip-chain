@@ -1,0 +1,59 @@
+{
+  "_comment": [
+    "Station CROSSWALK: feed-local names that must resolve to one canonical id.",
+    "",
+    "A cross-border journey only exists if both halves name the interchange the same",
+    "way, and the feeds do not agree: SNCF publishes city aggregates ('PARIS",
+    "(intramuros)'), while DB and SNCB name individual termini ('Paris Est', 'Paris",
+    "Nord (FR)'). Most stations need no entry — the converter already unifies names",
+    "that merely differ by accent, punctuation or a '(DE)' country tag. This file is",
+    "only for genuine disagreements, so it stays short enough to keep correct.",
+    "",
+    "Keys are canonical ids (the SNCF label where one exists, so the French half of a",
+    "join lands on the same node). Values are NORMALIZED feed names: lower-case, no",
+    "accents, no country tag, punctuation collapsed to spaces — see normalizeStationName",
+    "in scripts/fetch-networks.ts."
+  ],
+
+  "PARIS (intramuros)": [
+    "paris est",
+    "paris nord",
+    "paris gare du nord",
+    "paris gare de lyon",
+    "paris lyon",
+    "paris montparnasse",
+    "paris austerlitz",
+    "paris bercy",
+    "paris st lazare"
+  ],
+  "LILLE (intramuros)": ["lille europe", "lille flandres"],
+  "BRUXELLES MIDI": [
+    "bruxelles midi",
+    "brussel zuid",
+    "bruxelles midi brussel zuid",
+    "brussel zuid bruxelles midi",
+    "bruessel sued"
+  ],
+  "STRASBOURG": ["strasbourg", "strasbourg ville"],
+  "LUXEMBOURG": ["luxembourg", "luxembourg gare", "luxembourg gare centrale"],
+  "METZ VILLE": ["metz ville", "metz"],
+  "MULHOUSE VILLE": ["mulhouse ville", "mulhouse"],
+
+  "LONDON ST PANCRAS": ["london st pancras", "london st pancras international", "londres st pancras"],
+  "AMSTERDAM CENTRAAL": ["amsterdam centraal", "amsterdam cs", "amsterdam c"],
+  "ROTTERDAM CENTRAAL": ["rotterdam centraal", "rotterdam c"],
+  "DEN HAAG CENTRAAL": ["den haag centraal", "den haag c", "s gravenhage centraal"],
+  "UTRECHT CENTRAAL": ["utrecht centraal", "utrecht c"],
+  "ANTWERPEN CENTRAAL": ["antwerpen centraal", "anvers central", "antwerpen c"],
+  "LIEGE GUILLEMINS": ["liege guillemins", "luik guillemins"],
+  "GENT SINT PIETERS": ["gent sint pieters", "gand saint pierre"],
+  "BRUGGE": ["brugge", "bruges"],
+  "AACHEN HBF": ["aachen hbf", "aix la chapelle"],
+  "KOLN HBF": ["koln hbf", "cologne", "keulen"],
+  "FRANKFURT AM MAIN HBF": ["frankfurt main hbf", "frankfurt hbf", "frankfurt am main hbf", "francfort main"],
+  "BASEL SBB": ["basel sbb", "bale cff", "basel schweizerische bundesbahnen"],
+  "MAASTRICHT": ["maastricht"],
+  "BERLIN HBF": ["berlin hbf"],
+  "HAMBURG HBF": ["hamburg hbf"],
+  "MUNCHEN HBF": ["munchen hbf", "munich hbf"]
+}

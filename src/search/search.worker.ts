@@ -5,8 +5,10 @@
 
 import type { MaxTrain, SearchQuery } from "../types";
 import { loadDataset } from "../data/dataset";
-import { SNCF_PROFILE } from "../data/profile";
-import { datesForQuery, loadExtraTrains, searchPool } from "../data/sources";
+import { NETWORK_PROFILES, SNCF_PROFILE, type DatasetProfile } from "../data/profile";
+import { activeHubs, datesForQuery, loadAllExtraTrains, searchPool } from "../data/sources";
+import { setDefaultHubs } from "../core/connections";
+import { HUB_STATIONS } from "../config";
 import { clearConnCaches, dumpConnCaches, type ConnCacheDump } from "../core/connections";
 import { warmForQuery } from "./warm";
 
@@ -16,6 +18,8 @@ interface WarmMsg {
   today: string;
   /** Whether the page will render with paid trains included; see below. */
   includePaid?: boolean;
+  /** Profile ids of the foreign networks the page has enabled. */
+  networks?: string[];
 }
 
 let trains: MaxTrain[] = [];
@@ -27,9 +31,9 @@ const ready: Promise<void> = loadDataset()
     trains = [];
   });
 
-// The worker's own paid shards, cached across searches exactly as the page caches its.
-let paidExtra: MaxTrain[] = [];
-let paidWindowKey = "";
+// The worker's own extra shards, cached across searches exactly as the page caches its.
+let extraTrains: MaxTrain[] = [];
+let extraKey = "";
 
 /**
  * The pool to warm on. It must match the page's pool: a `ConnCacheDump` is keyed by
@@ -40,19 +44,35 @@ let paidWindowKey = "";
  * declines to warm at all, and the page computes on-thread with its own (correct)
  * pool, which is slower but never wrong.
  */
-async function poolFor(query: SearchQuery, today: string, includePaid: boolean): Promise<MaxTrain[] | null> {
-  if (!includePaid) return trains;
-  const dates = datesForQuery(query, today);
-  const key = dates.join(",");
-  if (key !== paidWindowKey) {
-    const extra = await loadExtraTrains(SNCF_PROFILE, dates);
-    // No shards at all means the page won't have them either, so warming the
-    // free-only pool would misrepresent a paid search.
-    if (extra.length === 0) return null;
-    paidExtra = extra;
-    paidWindowKey = key;
+async function poolFor(
+  query: SearchQuery,
+  today: string,
+  includePaid: boolean,
+  networks: string[],
+): Promise<MaxTrain[] | null> {
+  const sources: DatasetProfile[] = [];
+  if (includePaid) sources.push(SNCF_PROFILE);
+  for (const p of NETWORK_PROFILES) {
+    if (networks.includes(p.id)) sources.push(p);
   }
-  return searchPool(trains, paidExtra, key);
+  if (sources.length === 0) {
+    setDefaultHubs(HUB_STATIONS);
+    return trains;
+  }
+  const dates = datesForQuery(query, today);
+  const key = `${sources.map((s) => s.id).join("+")}|${dates.join(",")}`;
+  if (key !== extraKey) {
+    const extra = await loadAllExtraTrains(sources, dates);
+    // No shards at all means the page won't have them either, so warming the
+    // free-only pool would misrepresent the search.
+    if (extra.length === 0) return null;
+    extraTrains = extra;
+    extraKey = key;
+  }
+  // The hubs must match the page's too: they are part of every connection cache key,
+  // so a mismatch would make the dump useless at best and wrong at worst.
+  setDefaultHubs(activeHubs(HUB_STATIONS));
+  return searchPool(trains, extraTrains, key);
 }
 
 const ctx = self as unknown as {
@@ -61,14 +81,14 @@ const ctx = self as unknown as {
 };
 
 ctx.onmessage = (e: MessageEvent<WarmMsg>): void => {
-  const { id, query, today, includePaid } = e.data;
+  const { id, query, today, includePaid, networks } = e.data;
   void ready
     .then(async () => {
       if (!trains.length) {
         ctx.postMessage({ id, dump: null });
         return;
       }
-      const pool = await poolFor(query, today, includePaid === true);
+      const pool = await poolFor(query, today, includePaid === true, networks ?? []);
       if (!pool) {
         ctx.postMessage({ id, dump: null });
         return;

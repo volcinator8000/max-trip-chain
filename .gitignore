@@ -19,3 +19,12 @@ scratch_rt_conclusion.png
 # ~322k trains a month would add hundreds of MB to git history; the free MAX
 # snapshot in public/data stays committed as the offline fallback.
 public/data/paid/
+
+# Foreign-network shards, likewise rebuilt by the deploy from public GTFS feeds.
+public/data/db-fernverkehr/
+public/data/sncb/
+public/data/cfl/
+public/data/ns/
+
+# Downloaded GTFS archives (up to 200 MB each), cached only to speed up local runs.
+.gtfs-cache/

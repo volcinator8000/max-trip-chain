@@ -16,17 +16,21 @@
 import type { MaxTrain } from "../types";
 
 /** Current shard schema version — bumped if the tuple layout ever changes. */
-export const SHARD_VERSION = 1;
+export const SHARD_VERSION = 2;
 
 /**
  * One train in a shard, positionally encoded:
- * `[originIdx, destIdx, departMin, arriveMin, trainNo, categoryIdx]`
+ * `[originIdx, destIdx, departMin, arriveMin, trainIdx, categoryIdx]`
  *
- * Indices point into the shard's `stations` / `categories` tables. `arriveMin` is
- * already absolute (past-midnight arrivals exceed 1440), so decoding never has to
- * re-derive the day rollover. `categoryIdx` is -1 when the source has no line label.
+ * Every field is an index into one of the shard's string tables, or a plain integer.
+ * Train numbers are interned rather than inlined because one service becomes many
+ * origin→destination rows — a Brussels regional train yields ~45 — and some feeds
+ * use long identifiers; inlining them made train numbers alone two thirds of a
+ * Belgian shard. `arriveMin` is already absolute (past-midnight arrivals exceed
+ * 1440), so decoding never re-derives the day rollover. An index of -1 means the
+ * source gave no value.
  */
-export type ShardRow = [number, number, number, number, string, number];
+export type ShardRow = [number, number, number, number, number, number];
 
 export interface TrainShard {
   /** Schema version; a reader rejects anything it doesn't understand. */
@@ -45,6 +49,8 @@ export interface TrainShard {
   free: boolean;
   /** String table: station labels referenced by row indices 0 and 1. */
   stations: string[];
+  /** String table: train numbers referenced by row index 4. */
+  trains: string[];
   /** String table: line / train-type labels referenced by row index 5. */
   categories: string[];
   rows: ShardRow[];
@@ -79,6 +85,8 @@ export function encodeShard(
   const stationIdx = new Map<string, number>();
   const categories: string[] = [];
   const categoryIdx = new Map<string, number>();
+  const trainNos: string[] = [];
+  const trainNoIdx = new Map<string, number>();
 
   const intern = (table: string[], index: Map<string, number>, value: string): number => {
     const seen = index.get(value);
@@ -94,11 +102,21 @@ export function encodeShard(
     intern(stations, stationIdx, t.destination),
     t.departMin,
     t.arriveMin,
-    t.trainNo,
+    t.trainNo ? intern(trainNos, trainNoIdx, t.trainNo) : -1,
     t.category ? intern(categories, categoryIdx, t.category) : -1,
   ]);
 
-  return { v: SHARD_VERSION, date, source: meta.source, operator: meta.operator, free: meta.free, stations, categories, rows };
+  return {
+    v: SHARD_VERSION,
+    date,
+    source: meta.source,
+    operator: meta.operator,
+    free: meta.free,
+    stations,
+    trains: trainNos,
+    categories,
+    rows,
+  };
 }
 
 /**
@@ -118,18 +136,20 @@ export function decodeShard(shard: unknown): MaxTrain[] {
   if (typeof s.date !== "string" || !Array.isArray(s.rows) || !Array.isArray(s.stations)) return [];
   const stations = s.stations;
   const categories = Array.isArray(s.categories) ? s.categories : [];
+  const trainNos = Array.isArray(s.trains) ? s.trains : [];
   const free = s.free === true;
   const source = typeof s.source === "string" ? s.source : "";
   const operator = typeof s.operator === "string" ? s.operator : "";
   const out: MaxTrain[] = [];
   for (const row of s.rows) {
     if (!Array.isArray(row) || row.length < 6) continue;
-    const [oi, di, departMin, arriveMin, trainNo, ci] = row as ShardRow;
+    const [oi, di, departMin, arriveMin, ti, ci] = row as ShardRow;
     const origin = stations[oi];
     const destination = stations[di];
     if (origin === undefined || destination === undefined) continue;
     if (typeof departMin !== "number" || typeof arriveMin !== "number") continue;
     const category = ci >= 0 ? categories[ci] : undefined;
+    const trainNo = ti >= 0 ? (trainNos[ti] ?? "") : "";
     out.push({
       date: s.date,
       origin,
@@ -139,7 +159,7 @@ export function decodeShard(shard: unknown): MaxTrain[] {
       departMin,
       arriveMin,
       durationMin: arriveMin - departMin,
-      trainNo: typeof trainNo === "string" ? trainNo : "",
+      trainNo,
       available: free,
       free,
       paid: !free,

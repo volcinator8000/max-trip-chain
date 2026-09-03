@@ -45,6 +45,8 @@ Free, no account, open-source, and serverless — it runs entirely in your brows
 | **Filters** | Time window, max duration, MAX JEUNE vs SENIOR, train type, region |
 | **Map** | Leaflet map of every station, with correspondences plotted as intermediate points; click to select |
 | **Search & share** | Explicit run (`Enter`/`g`), back nav (`Esc`), **Surprise me** random city, ICS calendar export, shareable URLs |
+| **Paid trains** | An optional switch adds the trains that *run* but have no free MAX seat, badged **Paid** — so "nothing free today" comes with "…but these run" |
+| **European networks** | Optional per-country switches for **Germany (DB)**, **Belgium (SNCB)**, **Luxembourg (CFL)** and the **Netherlands (NS)**, merged into the same search — Paris → Frankfurt → Berlin plans as one trip |
 | **Private by default** | No accounts — favorites, settings and searches in `localStorage`; optional local notifications |
 | **Everywhere** | 11 languages (FR EN ES DE IT KO ZH JA NL PT AR, incl. RTL), light/dark, installable app that works offline, mobile, accessible |
 
@@ -55,6 +57,7 @@ Free, no account, open-source, and serverless — it runs entirely in your brows
 Which trains have a free MAX seat is published by SNCF as open data. MAX Finder is a static frontend over it:
 
 - A scheduled **GitHub Action** snapshots the dataset each morning into `public/data/tgvmax.json`, keeping only the trains with a free seat (~77 MB feed trimmed to ~6 MB).
+- The optional extras — paid SNCF trains, and the German / Belgian / Luxembourgish / Dutch networks built from their public GTFS feeds — are rebuilt by each deploy as compact **per-day shards** and never committed, so the repo stays small. They are fetched only for the days a search touches, and only for the networks you switch on.
 - The **browser** downloads that file and runs the search on your device; it can also query the SNCF API directly as a fallback.
 - Everything is static files on **GitHub Pages** — no backend, no database, no server cost.
 
@@ -65,6 +68,8 @@ Which trains have a free MAX seat is published by SNCF as open data. MAX Finder 
 ```bash
 npm install
 npm run dev      # http://localhost:5173  (uses the committed data snapshot if present, else fixture)
+npm run fetch-data      # refresh the SNCF snapshot + build the paid day shards
+npm run fetch-networks  # build the DE/BE/LU/NL shards from their GTFS feeds (add an id to do just one)
 npm test         # unit tests, no network needed
 npm run build    # type-check + static build -> dist/
 npm run verify   # render gate: the built app mounts (home + exact-trip + tour), no blank page
@@ -79,11 +84,11 @@ pull request and push to `main` (`.github/workflows/test.yml`), and gates the Pa
 
 ```
 public/data/ committed daily snapshot (tgvmax.json + meta.json), served at /data/
-data/        station registry + a small fixture for dev/tests
+data/        station registry, cross-feed station crosswalk, + a small fixture for dev/tests
 src/core     pure search / connections / calendar logic (unit-tested)
 src/data     dataset loading + station lookup (+ DatasetProfile seam)
 src/ui       rendering (search form, results, map, calendar)
-scripts/     fetch-data.ts (daily Action) + verify-render.mjs + e2e.mjs + screenshot.mjs
+scripts/     fetch-data.ts (daily Action) + fetch-networks.ts (GTFS → shards) + verify-render.mjs + e2e.mjs + screenshot.mjs
 tests/       unit tests (vitest)
 .github/     ci (test) + update-data (cron) + deploy (Pages) workflows
 docs/        how-it-works.md, algorithms.md (plain-language guides) + screenshots

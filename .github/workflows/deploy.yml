@@ -43,6 +43,13 @@ jobs:
       - name: Refresh data (best-effort)
         run: npm run fetch-data || echo "fetch-data failed; using committed snapshot"
 
+      # Build the foreign-network shards (Germany, Belgium, Luxembourg, Netherlands)
+      # from their public GTFS feeds. Best-effort and never committed: a network with
+      # no shards simply reads as unavailable in the app, and the SNCF experience is
+      # unaffected. Each network is independent, so one dead feed costs only itself.
+      - name: Build European network shards (best-effort)
+        run: npm run fetch-networks || echo "fetch-networks failed; those networks will be unavailable"
+
       - name: Build
         run: npm run build
 

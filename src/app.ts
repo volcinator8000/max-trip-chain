@@ -45,11 +45,13 @@ import {
   GITHUB_ISSUES_URL,
   OVERNIGHT_MAX_CONNECTION_MIN,
   SAME_DAY_MIN_ON_SITE_MIN,
+  HUB_STATIONS,
 } from "./config";
 import { filterOptsFor, odConnOptsFor, odJourneyOptsFor, getawayOptsFor } from "./core/queryOpts";
 import { warmSearch } from "./search/searchClient";
-import { datesForQuery, loadExtraTrains, searchPool } from "./data/sources";
-import { SNCF_PROFILE } from "./data/profile";
+import { activeHubs, datesForQuery, loadAllExtraTrains, loadSourceStations, searchPool } from "./data/sources";
+import { NETWORK_PROFILES, SNCF_PROFILE, profileById, type DatasetProfile } from "./data/profile";
+import { setDefaultHubs } from "./core/connections";
 import { notify } from "./pwa/register";
 
 interface Deps {
@@ -821,10 +823,18 @@ function ctx(): RenderCtx {
     label: (id) => deps.registry.label(id),
     formatDate,
     formatWeekday,
-    // Deep-link to SNCF Connect with the trip pre-filled (clean station names, the
-    // journey date, and the departure time). Connecting trips book per-leg instead.
-    bookUrl: (origin, destination, date, time) =>
-      generateBookingUrl(deps.registry.label(origin), deps.registry.label(destination), date, time),
+    // Deep-link to the operator's own booking site with the trip pre-filled (clean
+    // station names, the journey date, and the departure time). Connecting trips book
+    // per-leg instead — which is also how a cross-border trip gets one link per
+    // operator rather than one link that can only sell half of it.
+    bookUrl: (origin, destination, date, time, source) => {
+      const from = deps.registry.label(origin);
+      const to = deps.registry.label(destination);
+      const profile = profileById(source);
+      return profile?.bookingUrl
+        ? profile.bookingUrl(from, to, date, time)
+        : generateBookingUrl(from, to, date, time);
+    },
     cityInfoUrl,
     onOpenRoute: (origin, destination, open) => {
       // Drop any "via" carried over from a previous exact-trip search: drilling into
@@ -1693,45 +1703,76 @@ function cancelLoading(): boolean {
 }
 
 /**
- * Paid trains currently loaded, and the date window they cover. Kept here (rather
- * than refetched) so flipping the toggle off and on again is instant.
+ * Extra trains currently loaded (paid SNCF and/or foreign networks), and the key of
+ * the request that produced them. Kept here rather than refetched, so flipping a
+ * network off and on again is instant.
  */
-let paidExtra: MaxTrain[] = [];
-let paidWindowKey = "";
+let extraTrains: MaxTrain[] = [];
+let extraKey = "";
 
 /**
- * Point `deps.trains` at the pool this search should use, fetching the paid shards
- * first if the setting is on and this date window hasn't been loaded yet.
+ * The sources to search beyond the free SNCF snapshot.
  *
- * Returns null when the pool is already correct, so the common (free-only) path stays
- * fully synchronous and behaves exactly as it did before paid mode existed.
+ * A foreign network has no MAX-style free seat, so every train it offers is a paid
+ * one. Enabling a network therefore implies paid trains from that network — asking
+ * the user to ALSO tick "show paid trains" to see any German train at all would be
+ * a trap, so the two settings stay independent.
+ */
+function activeSources(): DatasetProfile[] {
+  const sources: DatasetProfile[] = [];
+  if (settings.showPaid) sources.push(SNCF_PROFILE); // its shards are the paid trains
+  for (const p of NETWORK_PROFILES) {
+    if (settings.networks.includes(p.id)) sources.push(p);
+  }
+  return sources;
+}
+
+/**
+ * Point `deps.trains` at the pool this search should use, fetching whatever extra
+ * sources are enabled first.
+ *
+ * Returns null when the pool is already correct, so the common (SNCF-only) path stays
+ * fully synchronous and behaves exactly as it did before any of this existed.
  */
 function preparePool(): Promise<void> | null {
-  if (!settings.showPaid) {
+  const sources = activeSources();
+  if (sources.length === 0) {
     deps.trains = deps.free;
+    setDefaultHubs(HUB_STATIONS);
     return null;
   }
   const dates = datesForQuery(query, today);
-  const key = dates.join(",");
-  if (key === paidWindowKey) {
+  const key = `${sources.map((s) => s.id).join("+")}|${dates.join(",")}`;
+  if (key === extraKey) {
     // Already fetched: searchPool memoizes, so this hands back the same array
     // identity and the warm connection caches survive.
-    deps.trains = searchPool(deps.free, paidExtra, key);
+    deps.trains = searchPool(deps.free, extraTrains, key);
+    setDefaultHubs(activeHubs(HUB_STATIONS));
     return null;
   }
-  return loadExtraTrains(SNCF_PROFILE, dates)
-    .then((extra) => {
-      paidExtra = extra;
-      paidWindowKey = key;
+  return Promise.all([
+    loadAllExtraTrains(sources, dates),
+    // Coordinates for the foreign stations, so their results reach the map instead of
+    // silently dropping off it.
+    Promise.all(sources.map((p) => loadSourceStations(p).catch(() => []))),
+  ])
+    .then(([extra, stationLists]) => {
+      extraTrains = extra;
+      extraKey = key;
       deps.trains = searchPool(deps.free, extra, key);
-      // Paid trains reach stations the free snapshot never mentions, so they must
-      // become searchable and mappable too.
+      // Foreign hubs must be in force before the search runs, or a cross-border trip
+      // could only ever be a direct train.
+      setDefaultHubs(activeHubs(HUB_STATIONS));
+      for (const list of stationLists) deps.registry.addStations(list);
+      // Extra trains reach stations no registry mentions, so they must become
+      // searchable too (with coordinates where the source supplied them).
       registerStations(extra);
     })
     .catch(() => {
-      // Shards unavailable (offline, or a deploy that didn't generate them): fall
-      // back to free-only rather than failing the search.
+      // Sources unavailable (offline, or a deploy that didn't generate them): fall
+      // back to the free snapshot rather than failing the search.
       deps.trains = deps.free;
+      setDefaultHubs(HUB_STATIONS);
     });
 }
 
@@ -1800,7 +1841,7 @@ function runSearch(): void {
     // Otherwise pre-compute the heavy search primitives on the background worker so the
     // main thread stays responsive; the render then reads them straight from cache. If
     // the worker can't help, warmSearch resolves quickly and the render computes on-thread.
-    void warmSearch(deps.trains, query, today, settings.showPaid).then(() => {
+    void warmSearch(deps.trains, query, today, settings.showPaid, settings.networks).then(() => {
       if (token !== searchToken) return;
       paint();
     });
@@ -3307,12 +3348,47 @@ function shiftDay(delta: number): void {
 }
 
 /** Open the Settings dialog (performance / display options); each toggle applies live. */
+/** Localized country name for a profile's ISO code, falling back to the code itself. */
+function countryName(code: string): string {
+  switch (code) {
+    case "DE":
+      return t("country_de");
+    case "BE":
+      return t("country_be");
+    case "LU":
+      return t("country_lu");
+    case "NL":
+      return t("country_nl");
+    case "FR":
+      return t("country_fr");
+    default:
+      return code;
+  }
+}
+
 function openSettings(): void {
   showSettingsModal({
     reduceMotion: settings.reduceMotion,
     map: settings.map,
     compact: settings.density === "compact",
     showPaid: settings.showPaid,
+    networks: NETWORK_PROFILES.map((p) => {
+      const country = countryName(p.country);
+      return {
+        id: p.id,
+        label: `${p.operator} · ${country}`,
+        country,
+        on: settings.networks.includes(p.id),
+      };
+    }),
+    onNetwork: (id, v) => {
+      const next = v ? [...settings.networks, id] : settings.networks.filter((n) => n !== id);
+      settings = { ...settings, networks: next };
+      store.saveSettings(settings);
+      // Changes which trains a search can return, so rerun rather than leaving a
+      // list that no longer matches the setting.
+      runSearch();
+    },
     onShowPaid: (v) => {
       settings = { ...settings, showPaid: v };
       store.saveSettings(settings);

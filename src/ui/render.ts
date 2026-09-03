@@ -19,7 +19,12 @@ export interface RenderCtx {
   formatDate: (iso: string) => string;
   /** Narrow localized weekday name (e.g. "Sat"). */
   formatWeekday: (iso: string) => string;
-  bookUrl: (origin: string, destination: string, date: string, time?: string) => string;
+  /**
+   * Where to buy this leg. `source` is the profile id the train came from: SNCF
+   * Connect does not sell a Dutch domestic ticket, so a foreign leg has to be sent
+   * to its own operator.
+   */
+  bookUrl: (origin: string, destination: string, date: string, time?: string, source?: string) => string;
   /** External travel-guide (Wikivoyage) URL for a station's city. */
   cityInfoUrl: (id: string) => string;
   /** Open the exact O→D trip. A getaway idea passes `open.date` — its advertised start day —
@@ -124,6 +129,11 @@ export function trainRowEl(train: MaxTrain): HTMLElement {
     // glance in the list, not only from the "+1d" time badge.
     ...(isNightTrain(train)
       ? [el("span", { class: "night-badge", text: "🌙", attrs: { title: t("field_night"), "aria-label": t("field_night") } })]
+      : []),
+    // Which network runs it, when that isn't the SNCF core — a Brussels→Amsterdam
+    // result is meaningless without knowing whose train (and whose ticket) it is.
+    ...(train.operator && train.operator !== "SNCF"
+      ? [el("span", { class: "chip chip-operator", text: train.operator })]
       : []),
     // This train runs but has no free MAX seat. It is only ever in the list because
     // the user turned paid trains on, and it must never be mistaken for a free one.
@@ -307,7 +317,7 @@ export function journeyEl(
   const connecting = j.legs.length > 1;
   const book = (): void => {
     if (connecting) ctx.onBookSteps(j);
-    else window.open(ctx.bookUrl(j.origin, j.destination, j.date, j.legs[0]?.depart), "_blank", "noopener,noreferrer");
+    else window.open(ctx.bookUrl(j.origin, j.destination, j.date, j.legs[0]?.depart, j.legs[0]?.source), "_blank", "noopener,noreferrer");
   };
 
   // A through-ticket can't be pinned to the exact free trains in a single SNCF
@@ -338,7 +348,7 @@ export function journeyEl(
         )
       : el("a", {
           class: "btn btn-primary book-leg",
-          href: ctx.bookUrl(j.origin, j.destination, j.date, j.legs[0]?.depart),
+          href: ctx.bookUrl(j.origin, j.destination, j.date, j.legs[0]?.depart, j.legs[0]?.source),
           attrs: { target: "_blank", rel: "noopener noreferrer" },
           text: opts.bookLabel,
         })
@@ -357,7 +367,7 @@ export function journeyEl(
         "a",
         {
           class: "book-arrow",
-          href: ctx.bookUrl(j.origin, j.destination, j.date, j.legs[0]?.depart),
+          href: ctx.bookUrl(j.origin, j.destination, j.date, j.legs[0]?.depart, j.legs[0]?.source),
           attrs: {
             target: "_blank",
             rel: "noopener noreferrer",
@@ -884,7 +894,7 @@ export function hiddenTrainRowEl(h: HiddenTrain, ctx: RenderCtx): HTMLElement {
       "a",
       {
         class: "btn btn-book",
-        href: ctx.bookUrl(h.origin, h.beyond, b.date, b.depart),
+        href: ctx.bookUrl(h.origin, h.beyond, b.date, b.depart, b.source),
         attrs: { target: "_blank", rel: "noopener noreferrer" },
       },
       [

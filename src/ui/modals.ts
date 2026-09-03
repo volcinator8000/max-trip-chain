@@ -78,10 +78,13 @@ export function showSettingsModal(opts: {
   compact: boolean;
   /** Include trains that run but have no free MAX seat (badged "Paid"). */
   showPaid: boolean;
+  /** The selectable foreign networks, and whether each is currently searched. */
+  networks: { id: string; label: string; country: string; on: boolean }[];
   onReduceMotion: (v: boolean) => void;
   onMap: (v: boolean) => void;
   onCompact: (v: boolean) => void;
   onShowPaid: (v: boolean) => void;
+  onNetwork: (id: string, v: boolean) => void;
   /** Master "Low-end mode": ON = all three savers on, OFF = all three off. */
   onLowEnd: (v: boolean) => void;
 }): void {
@@ -120,6 +123,21 @@ export function showSettingsModal(opts: {
       rebuild({ showPaid: v });
     }),
   ]);
+  // Each network is a separate switch rather than one "Europe" toggle: they cost a few
+  // MB of timetable each to fetch, so which borders you care about is worth asking.
+  // The hint carries that cost honestly instead of hiding it.
+  const networks = el(
+    "div",
+    { class: "set-rows" },
+    opts.networks.map((n) =>
+      settingSwitch(n.label, t("set_network_hint", { country: n.country }), n.on, (v) => {
+        opts.onNetwork(n.id, v);
+        rebuild({
+          networks: opts.networks.map((x) => (x.id === n.id ? { ...x, on: v } : x)),
+        });
+      }),
+    ),
+  );
   dialog.append(
     el("div", { class: "modal-body" }, [
       el("h2", { class: "modal-title", text: t("settings_title") }),
@@ -128,6 +146,8 @@ export function showSettingsModal(opts: {
       // silently change which trains a search returns).
       el("h3", { class: "set-group-title", text: t("set_content") }),
       content,
+      el("h3", { class: "set-group-title set-group-intro", text: t("set_networks") }),
+      networks,
       el("p", { class: "modal-text muted small set-group-intro", text: t("set_perf") }),
       el("div", { class: "set-rows set-master" }, [master]),
       body,
@@ -185,7 +205,7 @@ export function showBookingModal(journey: Journey, ctx: RenderCtx): void {
         ]),
         el("a", {
           class: "btn btn-primary book-step-btn",
-          href: ctx.bookUrl(leg.origin, leg.destination, leg.date, leg.depart),
+          href: ctx.bookUrl(leg.origin, leg.destination, leg.date, leg.depart, leg.source),
           attrs: { target: "_blank", rel: "noopener noreferrer" },
           text: t("act_book_leg", { n: i + 1 }),
         }),
