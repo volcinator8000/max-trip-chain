@@ -41,6 +41,20 @@ flowchart LR
 
 ---
 
+## Telling the app which passes you hold
+
+Settings has a **My subscriptions** list. What you tick decides what "free" means for you — the default view shows only the trains your passes actually cover.
+
+There are three answers, not two, because passes are not that tidy:
+
+- **Free** — nothing more to pay.
+- **Reservation** — your pass covers the journey, but a seat or supplement still costs money. A Dutch OV-jaarkaart covers "Intercity direct" only if you buy the high-speed supplement, so those trains say so rather than pretending to be free.
+- **Paid** — no pass of yours covers it. A discount card (BahnCard 25/50) leaves a train here, with the percentage shown: it makes the fare cheaper, not free.
+
+A few honest details. **MAX SENIOR** is weekday-only, and the app now filters on that rather than only warning. **Train+ and Traject Vrij** are valid between two named stations, so you type them in; until you do, they cover nothing. The **Deutschlandticket** is valid on regional transport only — none of the German long-distance trains loaded here — and the app says so under the switch instead of quietly changing nothing. And travel inside **Luxembourg is free for everyone**, so CFL trains show as free without any subscription at all.
+
+The app can only apply rules you declare: apart from SNCF, no timetable feed carries fare information, so nothing here is read from the data. The rules live in `src/data/passes.ts` in the open, and each is one line to correct.
+
 ## Trains beyond France (optional)
 
 Settings has switches for **Germany (DB)**, **Belgium (SNCB)**, **Luxembourg (CFL)** and the **Netherlands (NS)**, plus one for **paid SNCF trains**. All are off to start with, because the app is a free-seat finder first — and because each one downloads a few megabytes of timetable.

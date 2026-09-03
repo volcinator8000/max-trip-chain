@@ -46,6 +46,7 @@ Free, no account, open-source, and serverless — it runs entirely in your brows
 | **Map** | Leaflet map of every station, with correspondences plotted as intermediate points; click to select |
 | **Search & share** | Explicit run (`Enter`/`g`), back nav (`Esc`), **Surprise me** random city, ICS calendar export, shareable URLs |
 | **Paid trains** | An optional switch adds the trains that *run* but have no free MAX seat, badged **Paid** — so "nothing free today" comes with "…but these run" |
+| **Your subscriptions** | Declare the passes you hold (MAX JEUNE/SENIOR, BahnCard, Deutschlandticket, SNCB Go Unlimited / Train+, NS OV-jaarkaart / Traject Vrij) and the free view shows only what they actually cover — including a **Reservation** state for trains a pass covers but that still charge a supplement |
 | **European networks** | Optional per-country switches for **Germany (DB)**, **Belgium (SNCB)**, **Luxembourg (CFL)** and the **Netherlands (NS)**, merged into the same search — Paris → Frankfurt → Berlin plans as one trip |
 | **Private by default** | No accounts — favorites, settings and searches in `localStorage`; optional local notifications |
 | **Everywhere** | 11 languages (FR EN ES DE IT KO ZH JA NL PT AR, incl. RTL), light/dark, installable app that works offline, mobile, accessible |
@@ -58,7 +59,7 @@ Which trains have a free MAX seat is published by SNCF as open data. MAX Finder 
 
 - A scheduled **GitHub Action** snapshots the dataset each morning into `public/data/tgvmax.json`, keeping only the trains with a free seat (~77 MB feed trimmed to ~6 MB).
 - The optional extras — paid SNCF trains, and the German / Belgian / Luxembourgish / Dutch networks built from their public GTFS feeds — are rebuilt by each deploy as compact **per-day shards** and never committed, so the repo stays small. They are fetched only for the days a search touches, and only for the networks you switch on.
-- The **browser** downloads that file and runs the search on your device; it can also query the SNCF API directly as a fallback.
+- The **browser** downloads that file and runs the search on your device. (There is no live-API call at runtime: the app reads only the published snapshots, which is what lets it work offline.)
 - Everything is static files on **GitHub Pages** — no backend, no database, no server cost.
 
 ## Develop

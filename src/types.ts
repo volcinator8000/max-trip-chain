@@ -1,5 +1,9 @@
 // Domain types for MAX Finder.
 
+import type { Coverage } from "./data/passes";
+
+export type { Coverage };
+
 /** Which MAX subscription the user holds. */
 export type CardType = "jeune" | "senior";
 
@@ -60,6 +64,15 @@ export interface MaxTrain {
   paid?: boolean;
   /** Profile id the train came from, e.g. "sncf-tgvmax", "db-fernverkehr". */
   source?: string;
+  /**
+   * What this train costs the passes the user holds: "free", "reserve" (the pass
+   * covers travel but a seat or supplement costs extra) or "paid". Computed when the
+   * pool is built — see {@link file://./data/passes.ts}. Absent in the default
+   * configuration, where "free" is simply {@link MaxTrain.free}.
+   */
+  coverage?: Coverage;
+  /** Best percentage a held discount card gives on this train, if any. */
+  discount?: number;
   /** Operator label for the result badge, e.g. "SNCF", "DB", "SNCB". */
   operator?: string;
   axe?: string;

@@ -6,6 +6,7 @@
 
 import type { MaxTrain, SearchQuery } from "../types";
 import { restoreConnCaches, type ConnCacheDump } from "../core/connections";
+import type { RouteBinding } from "../data/passes";
 
 interface WarmReply {
   id: number;
@@ -51,7 +52,7 @@ function ensureWorker(): Worker | null {
  * caches. Resolves once done (or immediately if the worker can't help), so the caller
  * can render right after. Never throws.
  *
- * `includePaid` and `networks` must match the pool the caller is about to render
+ * `includePaid`, `networks` and the passes must match the pool the caller is about to render
  * with. The dump is keyed by route strings alone, so a worker warming a narrower pool
  * would otherwise hand back journeys the render trusts as complete when they are not.
  */
@@ -61,6 +62,8 @@ export function warmSearch(
   today: string,
   includePaid = false,
   networks: string[] = [],
+  passes: string[] = [],
+  passRoutes: Record<string, RouteBinding> = {},
 ): Promise<void> {
   const w = ensureWorker();
   if (!w) return Promise.resolve();
@@ -85,7 +88,7 @@ export function warmSearch(
       if (pending.delete(id)) finish(null);
     }, 4000);
     try {
-      w.postMessage({ id, query, today, includePaid, networks });
+      w.postMessage({ id, query, today, includePaid, networks, passes, passRoutes });
     } catch {
       pending.delete(id);
       finish(null);

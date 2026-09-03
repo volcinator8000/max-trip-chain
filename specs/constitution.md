@@ -25,7 +25,10 @@ data doesn't say a seat is free, the app doesn't claim it is.
 
 ## 5. Resilient to the data source
 The site reads a committed daily JSON snapshot so it never hard-depends on the live API being
-up or CORS-enabled. A live-API path exists as an enhancement/fallback, never as a requirement.
+up or CORS-enabled. Today there is no live-API call at runtime at all — the app reads only the
+published snapshots and shards, which is what lets it work offline. `DatasetProfile.apiUrl`
+records each source's upstream endpoint for the refresh jobs; if a live path is ever added it
+stays an enhancement, never a requirement.
 
 ## 6. Accessible, fast, international
 Mobile-first, keyboard-navigable, screen-reader friendly (WCAG AA targets). Small bundle.

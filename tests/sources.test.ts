@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { MaxTrain, SearchQuery } from "../src/types";
 import { encodeShard, decodeShard, SHARD_VERSION, type EncodableTrain } from "../src/data/shard";
-import { datesForQuery, loadExtraTrains, searchPool, resetSources, BOOKING_WINDOW_DAYS } from "../src/data/sources";
+import { datesForQuery, loadExtraTrains, buildPool, resetSources, BOOKING_WINDOW_DAYS } from "../src/data/sources";
+import { heldPasses } from "../src/data/passes";
 import type { DatasetProfile } from "../src/data/profile";
 import { filterTrains } from "../src/core/search";
 import { findJourneys } from "../src/core/connections";
@@ -100,28 +101,41 @@ describe("datesForQuery", () => {
   });
 });
 
-describe("searchPool", () => {
+describe("buildPool", () => {
   const free: MaxTrain[] = [];
   const extra = decodeShard(encodeShard("2026-07-01", rows, META));
+  const pool = (over: Partial<Parameters<typeof buildPool>[0]> = {}) =>
+    buildPool({
+      free,
+      extra,
+      held: heldPasses(["sncf-max-jeune"]),
+      bindings: {},
+      showPaid: true,
+      key: "k",
+      ...over,
+    });
 
   beforeEach(resetSources);
 
-  it("returns the free array itself when there is nothing extra", () => {
-    // Identity matters: the core memoizes on the trains array, so the default path
-    // must keep the very same array and its warm caches.
-    expect(searchPool(free, [], "k")).toBe(free);
-  });
-
   it("reuses one array identity for the same key, so caches survive a re-search", () => {
-    const a = searchPool(free, extra, "window-a");
-    const b = searchPool(free, extra, "window-a");
+    const a = pool({ key: "window-a" });
+    const b = pool({ key: "window-a" });
     expect(b).toBe(a);
   });
 
   it("builds a fresh array when the key changes, so a stale pool is never reused", () => {
-    const a = searchPool(free, extra, "window-a");
-    const b = searchPool(free, extra, "window-b");
+    const a = pool({ key: "window-a" });
+    const b = pool({ key: "window-b" });
     expect(b).not.toBe(a);
+  });
+
+  it("hides trains no held pass covers unless paid trains were asked for", () => {
+    // The extras here are a demo source no pass mentions, so they are all "paid".
+    const covered = pool({ key: "covered", showPaid: false });
+    expect(covered.every((t) => !t.available)).toBe(true);
+    const shown = pool({ key: "shown", showPaid: true });
+    expect(shown.every((t) => t.available)).toBe(true);
+    expect(shown.every((t) => t.coverage === "paid")).toBe(true);
   });
 
   it("surfaces snapshot trains the pass excludes, since they still run", () => {
@@ -142,11 +156,11 @@ describe("searchPool", () => {
       free: false,
       paid: true,
     };
-    const pool = searchPool([excluded], extra, "window-c");
-    const geneva = pool.find((t) => t.destination === "GENEVE");
+    const built = pool({ free: [excluded], key: "window-c", showPaid: true });
+    const geneva = built.find((t: MaxTrain) => t.destination === "GENEVE");
     expect(geneva?.available).toBe(true);
-    expect(geneva?.paid).toBe(true);
-    // The snapshot itself is never mutated — it stays the free-only pool.
+    expect(geneva?.coverage).toBe("paid");
+    // The snapshot itself is never mutated — it stays the fallback pool.
     expect(excluded.available).toBe(false);
   });
 });

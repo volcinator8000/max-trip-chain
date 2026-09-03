@@ -3,6 +3,7 @@ import type { Tour } from "../core/tour";
 import { stayFromNights } from "../core/roundtrip";
 import { dayIndex } from "../util/time";
 import { isLang, detectLang, type Lang } from "../i18n";
+import type { RouteBinding } from "../data/passes";
 
 /** URL token for a stay choice (compact + stable): stay=day|<N>|flex, where <N> is the
  *  fixed nights count for a `` `n${N}` `` stay (any N). */
@@ -52,6 +53,18 @@ export interface Settings {
    * searched and never appears here.
    */
   networks: string[];
+  /**
+   * Subscription ids the traveller holds (see src/data/passes.ts). These decide what
+   * "free" means: a train is shown in the default view when a held pass covers it.
+   * Defaults to MAX JEUNE, which reproduces the app's original behaviour exactly.
+   */
+  passes: string[];
+  /**
+   * Named routes for season tickets that are valid between two stations only
+   * (SNCB Train+, NS Traject Vrij), keyed by pass id. A route-bound pass with no
+   * route named covers nothing — better than inventing network-wide travel.
+   */
+  passRoutes: Record<string, RouteBinding>;
 }
 
 export type Density = "comfortable" | "compact";
@@ -89,6 +102,14 @@ function writeLS(key: string, value: unknown): void {
 
 // --- settings ---------------------------------------------------------------
 
+/** Shape-check a stored route map before trusting it (localStorage is user-editable). */
+function isRouteMap(v: unknown): v is Record<string, RouteBinding> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  return Object.values(v).every(
+    (r) => typeof r === "object" && r !== null && typeof (r as RouteBinding).from === "string" && typeof (r as RouteBinding).to === "string",
+  );
+}
+
 export function loadSettings(): Settings {
   const s = readLS<Partial<Settings>>(KEY.settings, {}, (v) => typeof v === "object" && v !== null && !Array.isArray(v));
   return {
@@ -101,6 +122,12 @@ export function loadSettings(): Settings {
     map: s.map !== false, // default on
     showPaid: s.showPaid === true, // default off — free seats are the point of the app
     networks: Array.isArray(s.networks) ? s.networks.filter((n): n is string => typeof n === "string") : [],
+    // Migrate the old single card choice: someone who had picked MAX SENIOR keeps it,
+    // and everyone else lands on MAX JEUNE — the behaviour the app always had.
+    passes: Array.isArray(s.passes)
+      ? s.passes.filter((n): n is string => typeof n === "string")
+      : [s.card === "senior" ? "sncf-max-senior" : "sncf-max-jeune"],
+    passRoutes: isRouteMap(s.passRoutes) ? s.passRoutes : {},
   };
 }
 

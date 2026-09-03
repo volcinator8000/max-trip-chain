@@ -18,11 +18,12 @@
  *    A different pool is a different array, so switching the toggle can never serve
  *    free-only results out of a warm cache — the caches simply don't collide.
  *
- * That second point is why {@link searchPool} caches pool arrays by key: the same
+ * That second point is why {@link buildPool} caches pool arrays by key: the same
  * request must return the SAME array back, or every search would miss the caches.
  */
 
 import type { MaxTrain, SearchQuery } from "../types";
+import { coverageFor, discountFor, type PassDefinition, type RouteBinding } from "./passes";
 import { decodeShard } from "./shard";
 import type { DatasetProfile } from "./profile";
 import { addDays, dayIndex } from "../util/time";
@@ -197,17 +198,59 @@ let poolArr: MaxTrain[] | null = null;
  * because only it knows what the extras represent; deriving one from array lengths
  * would let two different windows that happen to hold equal counts collide.
  */
-export function searchPool(free: MaxTrain[], extra: MaxTrain[], key: string): MaxTrain[] {
-  if (extra.length === 0) return free;
-  if (key === poolKey && poolArr) return poolArr;
-  // The snapshot is not purely free trains: a handful of rows are advertised with a
-  // MAX seat but sit at stops the pass doesn't cover (Genève, Bruxelles, …), so they
-  // arrive here `available: false`. They still RUN, so a paid search has to include
-  // them — otherwise Paris→Genève would list every train except the ones the feed
-  // actually flags, and the cross-border joins Phase 3 needs would be missing their
-  // French half. Only those few rows are copied; the rest keep their identity.
-  poolArr = free.map((t) => (t.available ? t : { ...t, available: true, paid: true })).concat(extra);
-  poolKey = key;
+export interface PoolRequest {
+  /** The committed free-MAX snapshot. Never mutated — it is the fallback pool. */
+  free: MaxTrain[];
+  /** Trains from shards (paid SNCF and/or foreign networks). */
+  extra: MaxTrain[];
+  /** The subscriptions in force, including the rules that apply to everyone. */
+  held: PassDefinition[];
+  /** Named routes for route-bound season tickets, by pass id. */
+  bindings: Record<string, RouteBinding>;
+  /** True when the user asked to see trains their passes do NOT cover. */
+  showPaid: boolean;
+  /** Identity of this request; the same key must return the same array. */
+  key: string;
+}
+
+/**
+ * The array the search should run on, with each train's coverage worked out from the
+ * passes held.
+ *
+ * `available` — the single flag the whole core reads — becomes "my passes cover this,
+ * or I asked to see what they don't". So the pass rules reach every filter, connection
+ * sweep and calendar without any of them knowing passes exist.
+ *
+ * Memoized under `key` (which must fold in the passes and bindings, not just the
+ * dates) so repeated searches reuse one array identity and keep their warm connection
+ * caches — see the module comment on why identity matters.
+ */
+export function buildPool(req: PoolRequest): MaxTrain[] {
+  if (req.key === poolKey && poolArr) return poolArr;
+  const { held, bindings, showPaid } = req;
+
+  // Shard trains are mutated in place rather than copied. They are decoded solely to
+  // be searched, this is the only writer, and coverage is fully recomputed on every
+  // rebuild — whereas copying them would double the peak memory of a pool that can
+  // hold over a million trains.
+  for (const t of req.extra) {
+    const coverage = coverageFor(t, held, bindings);
+    t.coverage = coverage;
+    t.discount = discountFor(t, held);
+    t.available = showPaid || coverage !== "paid";
+  }
+
+  // The snapshot IS copied: it is the fallback pool and every other search reads it,
+  // so it must come out of this unchanged. Note it is not purely free trains — rows
+  // advertised with a MAX seat at stops the pass doesn't cover (Bruxelles, Genève)
+  // arrive `free: false`, and they still run, so a paid search has to include them.
+  const snapshot: MaxTrain[] = req.free.map((t) => {
+    const coverage = coverageFor(t, held, bindings);
+    return { ...t, coverage, discount: discountFor(t, held), available: showPaid || coverage !== "paid" };
+  });
+
+  poolArr = snapshot.concat(req.extra);
+  poolKey = req.key;
   return poolArr;
 }
 

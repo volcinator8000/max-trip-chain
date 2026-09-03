@@ -6,7 +6,8 @@
 import type { MaxTrain, SearchQuery } from "../types";
 import { loadDataset } from "../data/dataset";
 import { NETWORK_PROFILES, SNCF_PROFILE, type DatasetProfile } from "../data/profile";
-import { activeHubs, datesForQuery, loadAllExtraTrains, searchPool } from "../data/sources";
+import { activeHubs, buildPool, datesForQuery, loadAllExtraTrains } from "../data/sources";
+import { heldPasses, type RouteBinding } from "../data/passes";
 import { setDefaultHubs } from "../core/connections";
 import { HUB_STATIONS } from "../config";
 import { clearConnCaches, dumpConnCaches, type ConnCacheDump } from "../core/connections";
@@ -20,6 +21,10 @@ interface WarmMsg {
   includePaid?: boolean;
   /** Profile ids of the foreign networks the page has enabled. */
   networks?: string[];
+  /** Subscription ids the page is judging coverage with. */
+  passes?: string[];
+  /** Named routes for route-bound season tickets. */
+  passRoutes?: Record<string, RouteBinding>;
 }
 
 let trains: MaxTrain[] = [];
@@ -49,6 +54,8 @@ async function poolFor(
   today: string,
   includePaid: boolean,
   networks: string[],
+  passes: string[],
+  passRoutes: Record<string, RouteBinding>,
 ): Promise<MaxTrain[] | null> {
   const sources: DatasetProfile[] = [];
   if (includePaid) sources.push(SNCF_PROFILE);
@@ -60,7 +67,13 @@ async function poolFor(
     return trains;
   }
   const dates = datesForQuery(query, today);
-  const key = `${sources.map((s) => s.id).join("+")}|${dates.join(",")}`;
+  // The key must fold in the passes as well as the dates: they decide which trains
+  // are usable, so a pool built under different passes is a different pool.
+  const passKey = passes
+    .map((id) => (passRoutes[id] ? `${id}:${passRoutes[id]?.from}>${passRoutes[id]?.to}` : id))
+    .sort()
+    .join(",");
+  const key = `${sources.map((s) => s.id).join("+")}|${passKey}|${includePaid ? "paid" : "covered"}|${dates.join(",")}`;
   if (key !== extraKey) {
     const extra = await loadAllExtraTrains(sources, dates);
     // No shards at all means the page won't have them either, so warming the
@@ -72,7 +85,14 @@ async function poolFor(
   // The hubs must match the page's too: they are part of every connection cache key,
   // so a mismatch would make the dump useless at best and wrong at worst.
   setDefaultHubs(activeHubs(HUB_STATIONS));
-  return searchPool(trains, extraTrains, key);
+  return buildPool({
+    free: trains,
+    extra: extraTrains,
+    held: heldPasses(passes),
+    bindings: passRoutes,
+    showPaid: includePaid,
+    key,
+  });
 }
 
 const ctx = self as unknown as {
@@ -81,14 +101,14 @@ const ctx = self as unknown as {
 };
 
 ctx.onmessage = (e: MessageEvent<WarmMsg>): void => {
-  const { id, query, today, includePaid, networks } = e.data;
+  const { id, query, today, includePaid, networks, passes, passRoutes } = e.data;
   void ready
     .then(async () => {
       if (!trains.length) {
         ctx.postMessage({ id, dump: null });
         return;
       }
-      const pool = await poolFor(query, today, includePaid === true, networks ?? []);
+      const pool = await poolFor(query, today, includePaid === true, networks ?? [], passes ?? [], passRoutes ?? {});
       if (!pool) {
         ctx.postMessage({ id, dump: null });
         return;

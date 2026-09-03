@@ -109,6 +109,32 @@ function tripSaveBtn(outbound: Journey, ctx: RenderCtx, inbound?: Journey): HTML
 }
 
 /** One train as a compact row. (Every shown train is MAX-reservable by definition.) */
+/**
+ * The cost chips for one train: whether a held pass covers it, and any discount a
+ * card gives on what is left to pay.
+ *
+ * Falls back to the plain paid flag when no coverage was computed — that is the
+ * default configuration, where everything shown already has a free MAX seat.
+ */
+function costChips(train: MaxTrain): HTMLElement[] {
+  const chips: HTMLElement[] = [];
+  const coverage = train.coverage ?? (train.paid ? "paid" : "free");
+  if (coverage === "reserve") {
+    chips.push(
+      el("span", { class: "chip chip-reserve", text: t("badge_reserve"), attrs: { title: t("badge_reserve_hint") } }),
+    );
+  } else if (coverage === "paid") {
+    chips.push(
+      el("span", { class: "chip chip-paid", text: t("badge_paid"), attrs: { title: t("badge_paid_hint") } }),
+    );
+    // Only worth showing next to a fare you are actually paying.
+    if (train.discount) {
+      chips.push(el("span", { class: "chip chip-discount", text: `-${train.discount}%` }));
+    }
+  }
+  return chips;
+}
+
 export function trainRowEl(train: MaxTrain): HTMLElement {
   const time = el("span", { class: "train-time" }, [
     el("strong", { text: train.depart }),
@@ -135,11 +161,10 @@ export function trainRowEl(train: MaxTrain): HTMLElement {
     ...(train.operator && train.operator !== "SNCF"
       ? [el("span", { class: "chip chip-operator", text: train.operator })]
       : []),
-    // This train runs but has no free MAX seat. It is only ever in the list because
-    // the user turned paid trains on, and it must never be mistaken for a free one.
-    ...(train.paid
-      ? [el("span", { class: "chip chip-paid", text: t("badge_paid"), attrs: { title: t("badge_paid_hint") } })]
-      : []),
+    // What this train costs the passes you hold. "Reserve" is the case that must not
+    // be rounded to either neighbour: the pass covers the travel, but a seat or
+    // supplement still costs money, so calling it free would mislead at the barrier.
+    ...costChips(train),
   ]);
   return el("div", { class: "train-row" }, [time, meta]);
 }
@@ -567,6 +592,19 @@ export function reachTripRowEl(
  * leads the head line beside the chip. Split out of journeyEl so the getaway card
  * can stack two of them in ONE ticket.
  */
+/** The cost chip for a whole journey: the worst leg wins (paid beats reserve beats free). */
+function journeyCostChips(j: Journey): HTMLElement[] {
+  const worst = j.legs.reduce<"free" | "reserve" | "paid">((acc, l) => {
+    const c = l.coverage ?? (l.paid ? "paid" : "free");
+    if (acc === "paid" || c === "paid") return "paid";
+    return acc === "reserve" || c === "reserve" ? "reserve" : "free";
+  }, "free");
+  if (worst === "free") return [];
+  return worst === "reserve"
+    ? [el("span", { class: "chip chip-reserve", text: t("badge_reserve"), attrs: { title: t("badge_reserve_hint") } })]
+    : [el("span", { class: "chip chip-paid", text: t("badge_paid"), attrs: { title: t("badge_paid_hint") } })];
+}
+
 function journeyBodyEl(j: Journey, ctx: RenderCtx, label?: string, dateLabel?: string): HTMLElement {
   const legs = el("div", { class: "legs" });
   j.legs.forEach((leg, i) => {
@@ -611,11 +649,9 @@ function journeyBodyEl(j: Journey, ctx: RenderCtx, label?: string, dateLabel?: s
     // date (otherwise which day a proposition is for is lost). Leads the head.
     ...(dateLabel ? [el("span", { class: "chip chip-date", text: dateLabel })] : []),
     tag,
-    // One paid leg makes the whole journey cost money, so the card says so up front
+    // The worst leg decides what the whole trip costs, so the card says so up front
     // rather than leaving it to be spotted on a single leg further down.
-    ...(j.legs.some((l) => l.paid)
-      ? [el("span", { class: "chip chip-paid", text: t("badge_paid"), attrs: { title: t("badge_paid_hint") } })]
-      : []),
+    ...journeyCostChips(j),
     el("span", { class: "journey-total" }, [icon(I.clock), el("span", { text: formatDuration(j.totalDurationMin) })]),
   ]);
   return el("div", { class: "journey-body" }, [head, legs]);

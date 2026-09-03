@@ -1,6 +1,6 @@
 import type { Dataset } from "./data/dataset";
 import { StationRegistry } from "./data/stations";
-import type { SearchQuery, SearchMode, MaxTrain, Journey, SortKey, CalendarDay, StayChoice } from "./types";
+import type { SearchQuery, SearchMode, MaxTrain, Journey, SortKey, CalendarDay, StayChoice, CardType } from "./types";
 import { stayNights, stayFromNights } from "./core/roundtrip";
 import {
   reachableDestinations,
@@ -49,7 +49,8 @@ import {
 } from "./config";
 import { filterOptsFor, odConnOptsFor, odJourneyOptsFor, getawayOptsFor } from "./core/queryOpts";
 import { warmSearch } from "./search/searchClient";
-import { activeHubs, datesForQuery, loadAllExtraTrains, loadSourceStations, searchPool } from "./data/sources";
+import { activeHubs, buildPool, datesForQuery, loadAllExtraTrains, loadSourceStations } from "./data/sources";
+import { heldPasses, SELECTABLE_PASSES } from "./data/passes";
 import { NETWORK_PROFILES, SNCF_PROFILE, profileById, type DatasetProfile } from "./data/profile";
 import { setDefaultHubs } from "./core/connections";
 import { notify } from "./pwa/register";
@@ -1236,7 +1237,10 @@ function applyAndRun(push = true, detail = false): void {
     // same (possibly drilled-in) page.
     store.updateUrl(query, formSnapshot(currentDetail()));
   }
-  settings = { ...settings, card: query.card };
+  // The card selector is a view over the two SNCF passes, so keep them in step:
+  // picking MAX SENIOR here has to mean the weekday rule actually applies, and a
+  // shared `card=senior` link has to arrive with that pass held.
+  settings = { ...settings, card: query.card, passes: passesForCard(query.card) };
   store.saveSettings(settings);
   runSearch();
   // Move focus to the results heading so screen-reader users hear the new context,
@@ -1734,19 +1738,65 @@ function activeSources(): DatasetProfile[] {
  * Returns null when the pool is already correct, so the common (SNCF-only) path stays
  * fully synchronous and behaves exactly as it did before any of this existed.
  */
+/**
+ * The pass configuration folded into a string, so the pool memo (and the connection
+ * caches keyed off its identity) rebuild when the user changes a subscription. Passes
+ * change which trains are usable just as much as the date window does.
+ */
+function passKey(): string {
+  const routes = settings.passes
+    .map((id) => {
+      const r = settings.passRoutes[id];
+      return r ? `${id}:${r.from}>${r.to}` : id;
+    })
+    .sort()
+    .join(",");
+  return `${routes}|${settings.showPaid ? "paid" : "covered"}`;
+}
+
+/**
+ * True when nothing has been configured away from the app's defaults — a MAX JEUNE
+ * holder searching SNCF only. That case can use the snapshot array untouched, which
+ * keeps the common path allocation-free and its caches warm.
+ */
+function isDefaultConfig(sources: DatasetProfile[]): boolean {
+  return (
+    sources.length === 0 &&
+    !settings.showPaid &&
+    settings.passes.length === 1 &&
+    settings.passes[0] === "sncf-max-jeune"
+  );
+}
+
 function preparePool(): Promise<void> | null {
   const sources = activeSources();
-  if (sources.length === 0) {
+  if (isDefaultConfig(sources)) {
     deps.trains = deps.free;
     setDefaultHubs(HUB_STATIONS);
     return null;
   }
   const dates = datesForQuery(query, today);
-  const key = `${sources.map((s) => s.id).join("+")}|${dates.join(",")}`;
+  const key = `${sources.map((s) => s.id).join("+")}|${passKey()}|${dates.join(",")}`;
+  const pool = (extra: MaxTrain[]): MaxTrain[] =>
+    buildPool({
+      free: deps.free,
+      extra,
+      held: heldPasses(settings.passes),
+      bindings: settings.passRoutes,
+      showPaid: settings.showPaid,
+      key,
+    });
+  if (sources.length === 0) {
+    // No extra sources, but a non-default pass set — the snapshot still has to be
+    // judged against the passes held (a MAX SENIOR must not see weekend trains).
+    deps.trains = pool([]);
+    setDefaultHubs(HUB_STATIONS);
+    return null;
+  }
   if (key === extraKey) {
-    // Already fetched: searchPool memoizes, so this hands back the same array
+    // Already fetched: buildPool memoizes, so this hands back the same array
     // identity and the warm connection caches survive.
-    deps.trains = searchPool(deps.free, extraTrains, key);
+    deps.trains = pool(extraTrains);
     setDefaultHubs(activeHubs(HUB_STATIONS));
     return null;
   }
@@ -1759,7 +1809,7 @@ function preparePool(): Promise<void> | null {
     .then(([extra, stationLists]) => {
       extraTrains = extra;
       extraKey = key;
-      deps.trains = searchPool(deps.free, extra, key);
+      deps.trains = pool(extra);
       // Foreign hubs must be in force before the search runs, or a cross-border trip
       // could only ever be a direct train.
       setDefaultHubs(activeHubs(HUB_STATIONS));
@@ -1847,7 +1897,7 @@ function runSearch(): void {
     // Otherwise pre-compute the heavy search primitives on the background worker so the
     // main thread stays responsive; the render then reads them straight from cache. If
     // the worker can't help, warmSearch resolves quickly and the render computes on-thread.
-    void warmSearch(deps.trains, query, today, settings.showPaid, settings.networks).then(() => {
+    void warmSearch(deps.trains, query, today, settings.showPaid, settings.networks, settings.passes, settings.passRoutes).then(() => {
       if (token !== searchToken) return;
       paint();
     });
@@ -3354,6 +3404,56 @@ function shiftDay(delta: number): void {
 }
 
 /** Open the Settings dialog (performance / display options); each toggle applies live. */
+/** The i18n keys naming the passes — `pass_` + the id with dashes as underscores. */
+type PassLabelKey =
+  | "pass_sncf_max_jeune"
+  | "pass_sncf_max_senior"
+  | "pass_db_bahncard_100"
+  | "pass_db_bahncard_50"
+  | "pass_db_bahncard_25"
+  | "pass_db_deutschlandticket"
+  | "pass_sncb_go_unlimited"
+  | "pass_sncb_train_plus"
+  | "pass_ns_ov_jaarkaart"
+  | "pass_ns_traject_vrij";
+
+/**
+ * Turn a typed station name into a canonical station id, so a season ticket binds to
+ * the same station the trains name. Returns "" when nothing matches, which leaves the
+ * pass unbound (and therefore covering nothing) rather than bound to a guess.
+ */
+function resolveStationInput(text: string): string {
+  const raw = text.trim();
+  if (!raw) return "";
+  const byLabel = labelToId.get(raw.toLowerCase());
+  if (byLabel) return byLabel;
+  const hit = deps.registry.search(raw, 1)[0];
+  return hit ? hit.id : "";
+}
+
+/**
+ * The pass list after choosing a MAX card in the form: swap the SNCF pass, leave every
+ * foreign subscription alone (they have nothing to do with which MAX card you hold).
+ */
+function passesForCard(card: CardType): string[] {
+  const kept = settings.passes.filter((id) => id !== "sncf-max-jeune" && id !== "sncf-max-senior");
+  return [card === "senior" ? "sncf-max-senior" : "sncf-max-jeune", ...kept];
+}
+
+/**
+ * Keep the form's MAX card selector in step with the SNCF passes held, so the two
+ * controls can never disagree and a shared `card=` link still means something.
+ */
+function syncCardFromPasses(): void {
+  const senior = settings.passes.includes("sncf-max-senior");
+  const jeune = settings.passes.includes("sncf-max-jeune");
+  const card: store.Settings["card"] = senior && !jeune ? "senior" : "jeune";
+  settings = { ...settings, card };
+  store.saveSettings(settings);
+  query = { ...query, card };
+  if (refs.card) refs.card.value = card;
+}
+
 /** Localized country name for a profile's ISO code, falling back to the code itself. */
 function countryName(code: string): string {
   switch (code) {
@@ -3378,6 +3478,36 @@ function openSettings(): void {
     map: settings.map,
     compact: settings.density === "compact",
     showPaid: settings.showPaid,
+    passes: SELECTABLE_PASSES.map((p) => ({
+      id: p.id,
+      label: t(`pass_${p.id.replace(/-/g, "_")}` as PassLabelKey),
+      operator: p.operator,
+      on: settings.passes.includes(p.id),
+      ...(p.routeBound ? { routeBound: true } : {}),
+      ...(settings.passRoutes[p.id] ? { route: settings.passRoutes[p.id] } : {}),
+      // Say plainly where a pass buys nothing here, instead of letting the user
+      // wonder why holding it changed no results.
+      ...(p.id === "db-deutschlandticket" ? { note: t("pass_note_deutschlandticket") } : {}),
+    })),
+    onPass: (id, v) => {
+      const next = v ? [...settings.passes, id] : settings.passes.filter((x) => x !== id);
+      settings = { ...settings, passes: next };
+      store.saveSettings(settings);
+      syncCardFromPasses();
+      runSearch();
+    },
+    onPassRoute: (id, from, to) => {
+      const routes = { ...settings.passRoutes };
+      // Resolve typed names to station ids, so a route binds to the same canonical
+      // station the trains use rather than to whatever the user typed.
+      const fromId = resolveStationInput(from);
+      const toId = resolveStationInput(to);
+      if (fromId && toId) routes[id] = { from: fromId, to: toId };
+      else delete routes[id];
+      settings = { ...settings, passRoutes: routes };
+      store.saveSettings(settings);
+      runSearch();
+    },
     networks: NETWORK_PROFILES.map((p) => {
       const country = countryName(p.country);
       return {

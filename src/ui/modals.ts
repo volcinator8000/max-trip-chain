@@ -68,6 +68,29 @@ function settingSwitch(label: string, hint: string, on: boolean, onChange: (v: b
 }
 
 /**
+ * The two station inputs for a route-bound season ticket, plus a warning while they
+ * are empty — an unbound pass covers nothing, and silently covering nothing would
+ * look like the app ignoring the subscription.
+ */
+function passRouteRow(
+  pass: { id: string; route?: { from: string; to: string } },
+  onRoute: (id: string, from: string, to: string) => void,
+): HTMLElement {
+  const from = el("input", { class: "input set-route-input", type: "text", attrs: { "aria-label": t("pass_route_from"), placeholder: t("pass_route_from") } }) as HTMLInputElement;
+  const to = el("input", { class: "input set-route-input", type: "text", attrs: { "aria-label": t("pass_route_to"), placeholder: t("pass_route_to") } }) as HTMLInputElement;
+  from.value = pass.route?.from ?? "";
+  to.value = pass.route?.to ?? "";
+  const commit = (): void => onRoute(pass.id, from.value.trim(), to.value.trim());
+  from.addEventListener("change", commit);
+  to.addEventListener("change", commit);
+  const unset = !pass.route?.from || !pass.route.to;
+  return el("div", { class: "set-route" }, [
+    el("span", { class: "set-row-hint muted small", text: unset ? t("pass_route_unset") : t("pass_route_hint") }),
+    el("div", { class: "set-route-fields" }, [from, to]),
+  ]);
+}
+
+/**
  * Settings dialog: performance / display options for low-end devices. Each toggle
  * applies immediately (and is persisted by the caller). "Low-end device" is a preset
  * that flips the three savers at once.
@@ -80,11 +103,25 @@ export function showSettingsModal(opts: {
   showPaid: boolean;
   /** The selectable foreign networks, and whether each is currently searched. */
   networks: { id: string; label: string; country: string; on: boolean }[];
+  /** The subscriptions on offer, whether each is held, and any route bound to it. */
+  passes: {
+    id: string;
+    label: string;
+    operator: string;
+    on: boolean;
+    /** Set when the pass is only valid between two named stations. */
+    routeBound?: boolean;
+    route?: { from: string; to: string };
+    /** An honest caveat shown under the switch (e.g. "covers nothing here"). */
+    note?: string;
+  }[];
   onReduceMotion: (v: boolean) => void;
   onMap: (v: boolean) => void;
   onCompact: (v: boolean) => void;
   onShowPaid: (v: boolean) => void;
   onNetwork: (id: string, v: boolean) => void;
+  onPass: (id: string, v: boolean) => void;
+  onPassRoute: (id: string, from: string, to: string) => void;
   /** Master "Low-end mode": ON = all three savers on, OFF = all three off. */
   onLowEnd: (v: boolean) => void;
 }): void {
@@ -138,9 +175,30 @@ export function showSettingsModal(opts: {
       }),
     ),
   );
+  // Subscriptions first: they decide what "free" means, so they are the setting most
+  // likely to be wrong for a given traveller.
+  const passes = el(
+    "div",
+    { class: "set-rows" },
+    opts.passes.flatMap((p) => {
+      const rows = [
+        settingSwitch(`${p.operator} · ${p.label}`, p.note ?? "", p.on, (v) => {
+          opts.onPass(p.id, v);
+          rebuild({ passes: opts.passes.map((x) => (x.id === p.id ? { ...x, on: v } : x)) });
+        }),
+      ];
+      // A route-bound season ticket covers nothing until its two stations are named,
+      // so the inputs appear as soon as it is held — and say so while they are empty.
+      if (p.on && p.routeBound) rows.push(passRouteRow(p, opts.onPassRoute));
+      return rows;
+    }),
+  );
   dialog.append(
     el("div", { class: "modal-body" }, [
       el("h2", { class: "modal-title", text: t("settings_title") }),
+      el("h3", { class: "set-group-title", text: t("set_passes") }),
+      el("p", { class: "modal-text muted small", text: t("set_passes_hint") }),
+      passes,
       // What the app shows is a content choice, kept clear of the performance savers
       // below (and deliberately outside the low-end master switch, which must never
       // silently change which trains a search returns).

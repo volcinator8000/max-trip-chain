@@ -1807,9 +1807,40 @@ a {
   font-weight: 640;
   letter-spacing: 0.02em;
 }
+/* Covered by your pass, but a seat or supplement still costs extra. Blue rather than
+   the paid amber: it is genuinely better news than paying full fare, and genuinely
+   worse than free, so it must not read as either. */
+.chip-reserve {
+  background: color-mix(in oklab, #2563eb 16%, var(--surface));
+  color: #1d4ed8;
+  border-color: transparent;
+  font-weight: 640;
+}
+/* How much a discount card takes off a fare you are still paying. */
+.chip-discount {
+  background: var(--surface-2);
+  color: var(--muted);
+  border-color: var(--border-strong);
+  font-variant-numeric: tabular-nums;
+}
 /* The "no free seat — show paid trains" nudge under an empty result list. */
 .paid-cta {
   margin-top: 0.5rem;
+}
+/* The two station fields under a route-bound season ticket. */
+.set-route {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0 0 0.6rem;
+}
+.set-route-fields {
+  display: flex;
+  gap: 0.4rem;
+}
+.set-route-input {
+  flex: 1 1 0;
+  min-width: 0;
 }
 /* Settings: a group heading above a block of switches. */
 .set-group-title {
