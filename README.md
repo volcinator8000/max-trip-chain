@@ -2,7 +2,7 @@
 
 **Find every SNCF train where a free MAX JEUNE / MAX SENIOR (ex-TGVmax) seat is actually reservable — instead of checking SNCF Connect one route at a time.**
 
-### ▶ [**Try it live — davd-gzl.github.io/MAX-Finder**](https://davd-gzl.github.io/MAX-Finder/) — no signup, runs in your browser
+### ▶ [**Try it live — volcinator8000.github.io/max-trip-chain**](https://volcinator8000.github.io/max-trip-chain/) — no signup, runs in your browser
 
 With a MAX JEUNE or MAX SENIOR pass, high-speed trains are free — but only when a MAX seat is still open on that train. SNCF Connect makes you check one route at a time; MAX Finder shows every station you can reach for free from a single search, using SNCF's open availability data.
 

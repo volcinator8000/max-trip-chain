@@ -1,7 +1,7 @@
 {
   "name": "MAX Finder",
   "description": "Free MAX JEUNE / MAX SENIOR (ex-TGVmax) seat availability from SNCF open data. Static, serverless, no accounts.",
-  "homepage": "https://davd-gzl.github.io/MAX-Finder/",
+  "homepage": "https://volcinator8000.github.io/max-trip-chain/",
   "license": "AGPL-3.0-only",
   "dataLicense": "Licence Ouverte / Open Licence",
   "notAffiliatedWith": "SNCF",
@@ -34,7 +34,7 @@
     "axe": "string (optional line/axis)"
   },
   "search": {
-    "base": "https://davd-gzl.github.io/MAX-Finder/",
+    "base": "https://volcinator8000.github.io/max-trip-chain/",
     "method": "GET (query string deep-link)",
     "params": {
       "mode": [
@@ -82,10 +82,10 @@
     }
   },
   "docs": {
-    "faq": "https://davd-gzl.github.io/MAX-Finder/faq/",
-    "howItWorks": "https://davd-gzl.github.io/MAX-Finder/docs/how-it-works.html",
-    "algorithms": "https://davd-gzl.github.io/MAX-Finder/docs/algorithms.html",
-    "llms": "https://davd-gzl.github.io/MAX-Finder/llms.txt",
-    "llmsFull": "https://davd-gzl.github.io/MAX-Finder/llms-full.txt"
+    "faq": "https://volcinator8000.github.io/max-trip-chain/faq/",
+    "howItWorks": "https://volcinator8000.github.io/max-trip-chain/docs/how-it-works.html",
+    "algorithms": "https://volcinator8000.github.io/max-trip-chain/docs/algorithms.html",
+    "llms": "https://volcinator8000.github.io/max-trip-chain/llms.txt",
+    "llmsFull": "https://volcinator8000.github.io/max-trip-chain/llms-full.txt"
   }
 }
