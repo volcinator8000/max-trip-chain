@@ -1,5 +1,5 @@
 import type { MaxTrain, Journey } from "../types";
-import { HUB_STATIONS, MIN_CONNECTION_MIN, MAX_CONNECTION_MIN } from "../config";
+import { HUB_STATIONS, MIN_CONNECTION_MIN, MAX_CONNECTION_MIN, CITY_TRANSFER_MIN, terminusOf } from "../config";
 import { absoluteMinute, addDays, dayIndex, parseTimeToMinutes } from "../util/time";
 import { isNightTrain } from "./search";
 
@@ -62,6 +62,29 @@ export function getDefaultHubs(): string[] {
 }
 
 export const MAX_RESULTS = 200;
+
+/**
+ * The shortest usable layover when changing at `station`.
+ *
+ * Most stations take the global minimum. A city aggregate takes its own, larger floor
+ * (see CITY_TRANSFER_MIN): `PARIS (intramuros)` is seven termini across a city, and a
+ * 15-minute change between them is not a connection, it is a missed train.
+ *
+ * An explicit `minConnectionMin` from the caller still wins, so a mode that knows
+ * better can say so. The table is static config, so the page and the search worker
+ * derive identical values — the connection caches are shared across that boundary and
+ * would answer for the wrong rules otherwise.
+ */
+function minLayoverAt(station: string, base: number, arriving: MaxTrain, departing: MaxTrain): number {
+  const city = CITY_TRANSFER_MIN[station];
+  if (city === undefined || city <= base) return base;
+  // Both legs at the same terminus is an ordinary platform change, not a city
+  // crossing. Resolving it recovers ~11.5k real connections a month at Paris that a
+  // blanket floor would have thrown away. An unresolved terminus counts as a crossing.
+  const from = terminusOf(station, arriving.axe);
+  const to = terminusOf(station, departing.axe);
+  return from !== undefined && from === to ? base : city;
+}
 const MAX_DFS_EXPANSIONS = 400_000;
 
 // Cache of available trains grouped by date, keyed by the (stable, loaded-once)
@@ -257,7 +280,9 @@ export function findJourneys(
     for (const nx of byOrigin.get(last.destination) ?? []) {
       if (visited.has(nx.destination)) continue;
       const layover = absoluteMinute(nx.date, nx.departMin) - lastArr;
-      if (layover < minC || layover > maxC) continue;
+      // The change happens at last.destination, and how long it needs depends on
+      // whether these two legs use the same terminus there.
+      if (layover < minLayoverAt(last.destination, minC, last, nx) || layover > maxC) continue;
       path.push(nx);
       dfs();
       path.pop();
@@ -403,7 +428,9 @@ export function reachableJourneys(
     for (const nx of byOrigin.get(last.destination) ?? []) {
       if (visited.has(nx.destination)) continue;
       const layover = absoluteMinute(nx.date, nx.departMin) - lastArr;
-      if (layover < minC || layover > maxC) continue;
+      // The change happens at last.destination, and how long it needs depends on
+      // whether these two legs use the same terminus there.
+      if (layover < minLayoverAt(last.destination, minC, last, nx) || layover > maxC) continue;
       path.push(nx);
       dfs();
       path.pop();
@@ -520,7 +547,8 @@ export function latestReturns(
     for (const pv of byDestination.get(head.origin) ?? []) {
       if (visited.has(pv.origin)) continue;
       const layover = headDep - absoluteMinute(pv.date, pv.arriveMin);
-      if (layover < minC || layover > maxC) continue;
+      // Walking backwards, the change happens at head.origin: pv arrives, head leaves.
+      if (layover < minLayoverAt(head.origin, minC, pv, head) || layover > maxC) continue;
       path.unshift(pv);
       dfs();
       path.shift();
@@ -630,7 +658,8 @@ export function reachableInto(
     for (const pv of byDestination.get(head.origin) ?? []) {
       if (visited.has(pv.origin)) continue;
       const layover = headDep - absoluteMinute(pv.date, pv.arriveMin);
-      if (layover < minC || layover > maxC) continue;
+      // Walking backwards, the change happens at head.origin: pv arrives, head leaves.
+      if (layover < minLayoverAt(head.origin, minC, pv, head) || layover > maxC) continue;
       path.unshift(pv);
       dfs();
       path.shift();

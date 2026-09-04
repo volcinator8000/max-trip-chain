@@ -400,8 +400,11 @@ describe("reachableBest (one-pass browse reachability)", () => {
 describe("findJourneys multi-hop (2 changes)", () => {
   const twoHop = normalizeRecords([
     { date: "2026-07-01", origine: "NANTES", destination: "PARIS (intramuros)", heure_depart: "08:00", heure_arrivee: "10:00", train_no: "1", od_happy_card: "OUI" },
-    { date: "2026-07-01", origine: "PARIS (intramuros)", destination: "LYON (intramuros)", heure_depart: "10:30", heure_arrivee: "12:30", train_no: "2", od_happy_card: "OUI" },
-    { date: "2026-07-01", origine: "LYON (intramuros)", destination: "MARSEILLE ST CHARLES", heure_depart: "13:00", heure_arrivee: "14:40", train_no: "3", od_happy_card: "OUI" },
+    // 60 minutes at Paris and 30 at Lyon: both are city aggregates with their own
+    // floors (see CITY_TRANSFER_MIN). This fixture used to change Paris in 30, which
+    // the search now refuses — crossing between Paris termini takes longer than that.
+    { date: "2026-07-01", origine: "PARIS (intramuros)", destination: "LYON (intramuros)", heure_depart: "11:00", heure_arrivee: "13:00", train_no: "2", od_happy_card: "OUI" },
+    { date: "2026-07-01", origine: "LYON (intramuros)", destination: "MARSEILLE ST CHARLES", heure_depart: "13:30", heure_arrivee: "15:10", train_no: "3", od_happy_card: "OUI" },
   ] as RawRecord[]);
 
   it("needs two changes: nothing at maxConnections<=1, a 3-leg journey at 2", () => {
@@ -415,7 +418,7 @@ describe("findJourneys multi-hop (2 changes)", () => {
     const j = two[0]!;
     expect(j.legs.map((l) => l.trainNo)).toEqual(["1", "2", "3"]);
     expect(j.hubs).toEqual(["PARIS (intramuros)", "LYON (intramuros)"]);
-    expect(j.layovers).toEqual([30, 30]);
+    expect(j.layovers).toEqual([60, 30]);
   });
 });
 
@@ -1134,3 +1137,107 @@ function base(): RawRecord {
     od_happy_card: "OUI",
   };
 }
+
+describe("changing trains at a city, not a station", () => {
+  // `PARIS (intramuros)` is seven termini at once — Nord, Est, Lyon, Montparnasse,
+  // Austerlitz… A 15-minute change between them is a missed train, not a connection.
+  // An audit of the live feed found 21,611 such itineraries the search would propose.
+  const leg = (o: string, d: string, dep: string, arr: string, no: string): RawRecord => ({
+    date: "2026-06-25",
+    origine: o,
+    destination: d,
+    heure_depart: dep,
+    heure_arrivee: arr,
+    train_no: no,
+    od_happy_card: "OUI",
+  });
+
+  /** Arrive at `hub` at 10:00, leave again after `gap` minutes. */
+  function viaHub(hub: string, gap: number) {
+    const dep = `${String(10 + Math.floor(gap / 60)).padStart(2, "0")}:${String(gap % 60).padStart(2, "0")}`;
+    const arr = `${String(12 + Math.floor(gap / 60)).padStart(2, "0")}:${String(gap % 60).padStart(2, "0")}`;
+    return normalizeRecords([
+      leg("ALPHA", hub, "08:00", "10:00", "1"),
+      leg(hub, "OMEGA", dep, arr, "2"),
+    ]);
+  }
+
+  /** Arrive at Paris on `axeIn` at 10:00, leave on `axeOut` after `gap` minutes. */
+  function viaParis(gap: number, axeIn: string, axeOut: string) {
+    const dep = `${String(10 + Math.floor(gap / 60)).padStart(2, "0")}:${String(gap % 60).padStart(2, "0")}`;
+    const arr = `${String(12 + Math.floor(gap / 60)).padStart(2, "0")}:${String(gap % 60).padStart(2, "0")}`;
+    return normalizeRecords([
+      { ...leg("ALPHA", "PARIS (intramuros)", "08:00", "10:00", "1"), axe: axeIn },
+      { ...leg("PARIS (intramuros)", "OMEGA", dep, arr, "2"), axe: axeOut },
+    ]);
+  }
+  const parisRun = (trains: ReturnType<typeof normalizeRecords>) =>
+    findJourneys(trains, "ALPHA", "OMEGA", "2026-06-25", {
+      maxConnections: 1,
+      hubs: ["PARIS (intramuros)"],
+    });
+
+  it("allows a short change when both legs use the SAME Paris terminus", () => {
+    // Nord → Nord is a platform change; the city floor must not punish it. Resolving
+    // this keeps ~11.5k genuine connections a month that a blanket floor would drop.
+    expect(parisRun(viaParis(20, "NORD", "NORD"))).toHaveLength(1);
+  });
+
+  it("refuses the same 20 minutes when the legs are at different Paris termini", () => {
+    // Austerlitz → Gare de Lyon is a metro ride across the city.
+    expect(parisRun(viaParis(20, "IC NUIT", "SUD EST"))).toHaveLength(0);
+  });
+
+  it("treats an unknown terminus as a city crossing", () => {
+    // IC ARO and INTERNATIONAL aren't tied to one gare, so they might be the far side
+    // of Paris — assume the worst rather than propose a trip that can't be made.
+    expect(parisRun(viaParis(20, "IC ARO", "IC ARO"))).toHaveLength(0);
+    expect(parisRun(viaParis(65, "IC ARO", "IC ARO"))).toHaveLength(1);
+  });
+
+  it("refuses a 20-minute change across Paris", () => {
+    const found = findJourneys(viaHub("PARIS (intramuros)", 20), "ALPHA", "OMEGA", "2026-06-25", {
+      maxConnections: 1,
+      hubs: ["PARIS (intramuros)"],
+    });
+    expect(found).toHaveLength(0);
+  });
+
+  it("allows an hour across Paris", () => {
+    const found = findJourneys(viaHub("PARIS (intramuros)", 65), "ALPHA", "OMEGA", "2026-06-25", {
+      maxConnections: 1,
+      hubs: ["PARIS (intramuros)"],
+    });
+    expect(found).toHaveLength(1);
+    expect(found[0]?.layovers).toEqual([65]);
+  });
+
+  it("still allows a 20-minute change at a single-station hub", () => {
+    // The floor is about crossing a CITY. Rennes is one station; 20 minutes is fine
+    // there, and tightening everything would have thrown away real connections.
+    const found = findJourneys(viaHub("RENNES", 20), "ALPHA", "OMEGA", "2026-06-25", {
+      maxConnections: 1,
+      hubs: ["RENNES"],
+    });
+    expect(found).toHaveLength(1);
+  });
+
+  it("lets an explicit option override the city floor", () => {
+    const found = findJourneys(viaHub("PARIS (intramuros)", 20), "ALPHA", "OMEGA", "2026-06-25", {
+      maxConnections: 1,
+      hubs: ["PARIS (intramuros)"],
+      minConnectionMin: 90,
+    });
+    expect(found).toHaveLength(0);
+  });
+
+  it("enforces the ordinary 15-minute floor everywhere else", () => {
+    expect(
+      findJourneys(viaHub("RENNES", 10), "ALPHA", "OMEGA", "2026-06-25", {
+        maxConnections: 1,
+        hubs: ["RENNES"],
+      }),
+    ).toHaveLength(0);
+  });
+});
+

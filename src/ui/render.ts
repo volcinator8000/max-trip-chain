@@ -1,4 +1,5 @@
 import type { MaxTrain, Journey, SearchMode, CalendarDay, SortKey } from "../types";
+import { terminusOf } from "../config";
 import type { HiddenTrain } from "../core/hidden";
 import type { StationGroup, WindowStat } from "../core/destinations";
 import type { BestTrip } from "../core/best";
@@ -264,15 +265,6 @@ export function collapsibleCalendar(
 // (Intercités, international, night) stay as the plain "Paris" — better a city than
 // a wrong gare. The mapping only applies on a concrete journey leg (where the axe is
 // known), never in browse lists (where many axes mix under one "Paris").
-const PARIS_GARE_BY_AXE: Record<string, string> = {
-  "SUD EST": "Paris Gare de Lyon",
-  ATLANTIQUE: "Paris Montparnasse",
-  NORD: "Paris Nord",
-  EST: "Paris Est",
-  // Every Intercités de Nuit from Paris departs Austerlitz. (IC ARO / INTERNATIONAL
-  // aren't tied to one gare, so they stay the plain "Paris" aggregate.)
-  "IC NUIT": "Paris Austerlitz",
-};
 
 /** Display name for one end of a leg: the specific Paris terminus gare — fixed by the
  *  train's axe — when that end is the Paris aggregate; otherwise the plain station /
@@ -281,7 +273,7 @@ const PARIS_GARE_BY_AXE: Record<string, string> = {
 function legEndpointLabel(ctx: RenderCtx, leg: MaxTrain, end: "origin" | "destination"): string {
   const id = end === "origin" ? leg.origin : leg.destination;
   if (id === "PARIS (intramuros)") {
-    return PARIS_GARE_BY_AXE[(leg.axe ?? "").toUpperCase().trim()] ?? ctx.label(id);
+    return terminusOf(id, leg.axe) ?? ctx.label(id);
   }
   return ctx.label(id);
 }

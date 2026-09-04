@@ -6,7 +6,9 @@ export const SNCF_API_URL =
 export const HUB_STATIONS: string[] = [
   "PARIS (intramuros)",
   "LYON (intramuros)",
-  "LILLE",
+  // The feed only ever emits "LILLE (intramuros)"; the bare "LILLE" written here
+  // matched nothing, so Lille has never actually worked as an interchange.
+  "LILLE (intramuros)",
   "MARSEILLE ST CHARLES",
   "BORDEAUX ST JEAN",
   "RENNES",
@@ -18,6 +20,57 @@ export const HUB_STATIONS: string[] = [
 
 /** Allowed layover window (minutes) for a connection. */
 export const MIN_CONNECTION_MIN = 15;
+
+/**
+ * Minimum minutes to change trains at a station that is really a WHOLE CITY.
+ *
+ * The SNCF feed publishes city aggregates: `PARIS (intramuros)` is Nord, Est, Lyon,
+ * Montparnasse, Austerlitz, Bercy and Saint-Lazare at once. Treating that as one
+ * station let the search offer a 15-minute change between termini that are a metro
+ * ride apart — an audit of the live feed found 21,611 such connections, 12.5% of
+ * every Paris change it was willing to propose (arrive Austerlitz 07:03, depart Gare
+ * de Lyon 07:26). A traveller acting on one misses their train.
+ *
+ * These are therefore CROSS-CITY floors, not platform-change times: the pessimistic
+ * reading, because the data cannot say which terminus a leg actually uses. That does
+ * cost some genuine same-station changes; offering an impossible trip is worse.
+ */
+/**
+ * Which terminus inside a city aggregate a train actually uses, by its line.
+ *
+ * The SNCF feed never names the gare, but the `axe` implies it: every Atlantique
+ * service leaves Montparnasse, every Sud-Est one Gare de Lyon. That is enough to tell
+ * a real platform change (Nord → Nord, 15 minutes is fine) from crossing the city
+ * (Austerlitz → Gare de Lyon, which is not a connection at 23 minutes).
+ *
+ * `IC ARO` and `INTERNATIONAL` are deliberately absent — they are not tied to one
+ * gare, so they resolve to undefined and are treated as a city crossing. Pessimistic
+ * on purpose: an unknown terminus might be the far side of Paris.
+ */
+export const PARIS_GARE_BY_AXE: Record<string, string> = {
+  "SUD EST": "Paris Gare de Lyon",
+  ATLANTIQUE: "Paris Montparnasse",
+  NORD: "Paris Nord",
+  EST: "Paris Est",
+  // Every Intercités de Nuit out of Paris leaves Austerlitz.
+  "IC NUIT": "Paris Austerlitz",
+};
+
+/**
+ * The specific terminus a leg uses inside a city aggregate, or undefined when it
+ * cannot be told. Only Paris can be resolved today; other aggregates always read as
+ * unknown, which simply means they keep their full city floor.
+ */
+export function terminusOf(station: string, axe: string | undefined): string | undefined {
+  if (station !== "PARIS (intramuros)") return undefined;
+  return PARIS_GARE_BY_AXE[(axe ?? "").toUpperCase().trim()];
+}
+
+export const CITY_TRANSFER_MIN: Record<string, number> = {
+  "PARIS (intramuros)": 60,
+  "LYON (intramuros)": 30,
+  "LILLE (intramuros)": 25,
+};
 export const MAX_CONNECTION_MIN = 240;
 /** Layover ceiling when overnight stopovers are allowed (sleep at the hub). */
 export const OVERNIGHT_MAX_CONNECTION_MIN = 15 * 60;

@@ -16,6 +16,7 @@ import * as path from "path";
 import { encodeShard, type EncodableTrain } from "../src/data/shard";
 import { stationFileName } from "../src/data/stationShard";
 import { parseTimeToMinutes } from "../src/util/time";
+import { HUB_STATIONS } from "../src/config";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -266,6 +267,23 @@ async function main(): Promise<void> {
   if (records.length === 0) {
     console.error("[fetch-data] Zero reservable (OUI) records after mapping. Not overwriting existing data.");
     process.exit(1);
+  }
+
+  // A hub the feed never names is invisible: no error, just journeys that are never
+  // found. "LILLE" sat in HUB_STATIONS for months while the data only ever said
+  // "LILLE (intramuros)", so Lille silently never worked as an interchange. Check it
+  // here, where the whole live dataset is in hand — a fixture can't see this.
+  const stationIds = new Set<string>();
+  for (const r of records) {
+    stationIds.add(r.origine);
+    stationIds.add(r.destination);
+  }
+  const deadHubs = HUB_STATIONS.filter((h) => !stationIds.has(h));
+  if (deadHubs.length > 0) {
+    console.warn(
+      `[fetch-data] WARNING: ${deadHubs.length} configured hub(s) appear nowhere in the feed ` +
+        `and can never be used to change trains: ${deadHubs.join(", ")}`,
+    );
   }
 
   const meta: Meta = {
