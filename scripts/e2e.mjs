@@ -17,7 +17,7 @@
  * Exit 0 = every scenario passed; exit 1 = at least one failed (prints details).
  */
 import http from "node:http";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, statSync, mkdtempSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, statSync, mkdtempSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 import chromium from "@sparticuz/chromium";
@@ -37,11 +37,26 @@ const TYPES = {
   ".txt": "text/plain", ".xml": "application/xml", ".ico": "image/x-icon",
 };
 
+/**
+ * Files served from memory, ahead of dist.
+ *
+ * The synthetic network below MUST NOT be written to disk: the deploy runs this suite
+ * after the build and before uploading dist/ as the Pages artifact, so a fixture
+ * written there ships to production. It did — the deployed Belgian index briefly
+ * carried "E2E ALPHA" as its only station, which broke every real Belgian search.
+ */
+const OVERLAY = new Map();
+
 // Serve dist, mirroring the GitHub-Pages /max-trip-chain/ base-path rewrite.
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent((req.url || "/").split("?")[0])
     .replace(/^\/max-trip-chain\//, "/")
     .replace(/^\/+/, "");
+  const fixture = OVERLAY.get(p);
+  if (fixture) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(fixture);
+  }
   let file = join(DIST, p);
   if (!file.startsWith(DIST)) return res.writeHead(403).end();
   if (!existsSync(file) || statSync(file).isDirectory()) file = join(DIST, "index.html");
@@ -109,8 +124,6 @@ const E2E_B = "E2E BETA";
 const NET_DATE = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
 
 function writeSyntheticNetwork() {
-  const dir = join(DIST, "data", E2E_NET);
-  mkdirSync(join(dir, "s"), { recursive: true });
   const legs = [
     { date: NET_DATE, origin: E2E_A, destination: E2E_B, departMin: 9 * 60, arriveMin: 11 * 60, trainNo: "E1", category: "IC" },
     { date: NET_DATE, origin: E2E_A, destination: E2E_B, departMin: 14 * 60, arriveMin: 16 * 60, trainNo: "E2", category: "IC" },
@@ -118,24 +131,47 @@ function writeSyntheticNetwork() {
   const meta = { source: E2E_NET, operator: "SNCB", free: false };
   // A leg is filed under BOTH endpoints, exactly as the converter does.
   for (const station of [E2E_A, E2E_B]) {
-    writeFileSync(join(dir, "s", stationFileName(station)), JSON.stringify(encodeShard(legs, meta)), "utf-8");
+    OVERLAY.set(`data/${E2E_NET}/s/${stationFileName(station)}`, JSON.stringify(encodeShard(legs, meta)));
   }
-  writeFileSync(
-    join(dir, "index.json"),
+  OVERLAY.set(
+    `data/${E2E_NET}/index.json`,
     JSON.stringify({ v: 2, source: E2E_NET, operator: "SNCB", country: "BE", hubs: [E2E_A],
       counts: { [E2E_A]: legs.length, [E2E_B]: legs.length } }),
-    "utf-8",
   );
-  writeFileSync(
-    join(dir, "stations.json"),
+  OVERLAY.set(
+    `data/${E2E_NET}/stations.json`,
     JSON.stringify([
       { id: E2E_A, label: "E2E Alpha", lat: 50.84, lng: 4.35, country: "BE" },
       { id: E2E_B, label: "E2E Beta", lat: 51.22, lng: 4.4, country: "BE" },
     ]),
-    "utf-8",
   );
 }
 writeSyntheticNetwork();
+
+/**
+ * Fingerprint of everything under dist/data, taken before the scenarios run.
+ *
+ * This suite must be READ-ONLY with respect to dist: the deploy runs it between the
+ * build and the Pages upload, so anything it writes ships to production. That is not
+ * hypothetical — an earlier version of the fixture above wrote itself into
+ * dist/data/sncb/ and the deployed Belgian index went live listing two fake stations.
+ */
+function distDataFingerprint() {
+  const root = join(DIST, "data");
+  if (!existsSync(root)) return "";
+  const parts = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir).sort()) {
+      const full = join(dir, name);
+      const st = statSync(full);
+      if (st.isDirectory()) walk(full);
+      else parts.push(`${full.slice(root.length)}:${st.size}`);
+    }
+  };
+  walk(root);
+  return parts.join("|");
+}
+const DIST_DATA_BEFORE = distDataFingerprint();
 
 // --- tiny assertion harness -------------------------------------------------
 const results = [];
@@ -684,6 +720,17 @@ await scenario(
 // ---------------------------------------------------------------------------
 await browser.close();
 server.close();
+
+// The suite must not have touched the artifact it was testing.
+if (distDataFingerprint() !== DIST_DATA_BEFORE) {
+  results.push({
+    ok: false,
+    name: "e2e leaves dist/data untouched",
+    detail:
+      "the suite modified dist/data — the deploy uploads that directory to production " +
+      "immediately after this step, so a test fixture would ship to real users",
+  });
+}
 
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} E2E scenarios passed.`);
