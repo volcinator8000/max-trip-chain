@@ -97,11 +97,12 @@ canonical id wherever SNCF also serves the station.
   after the first render, cheapest first, within a budget and in a few rounds
   (each new pool resets the connection caches, so re-rendering per file was far too
   slow). Results therefore improve for a few seconds after a search.
-- **Changing at a city aggregate.** `MIN_CONNECTION_MIN` is 15 minutes, applied to
-  `PARIS (intramuros)` as if it were one station. A Belgian arrival at Nord and a
-  German departure from Est 20 minutes later will be offered as a valid change. This
-  predates V2 (Gare de Lyon → Nord had the same flaw) but crossing borders makes it
-  much likelier; hubs that are really cities need their own minimum.
+- **Changing at a city aggregate — fixed.** City aggregates now carry their own
+  minimum, relaxed back to the ordinary 15 minutes when the line implies both legs use
+  the same terminus. Foreign legs can never resolve a terminus (their `axe` is a route
+  class like `S43`), so a cross-border change at Paris always pays the full hour. The
+  remaining gap is that the converter discards the feed's own station name — DB does
+  say "Paris Est" — so carrying it would let a German leg be judged precisely too.
 
 ---
 

@@ -91,6 +91,31 @@ flowchart TD
 
 ---
 
+## 2b. How long a change really takes
+
+**In one line:** the app refuses connections that look fine on paper but can't be made.
+
+**Analogy:** a timetable says your train reaches "Paris" at 07:03 and the next leaves "Paris" at 07:26. Twenty-three minutes — comfortable, until you notice the first arrives at Austerlitz and the second leaves from Gare de Lyon, on the other side of the city.
+
+**How it works, step by step:**
+
+- The SNCF data doesn't name stations, it names **cities**: `PARIS (intramuros)` is Nord, Est, Gare de Lyon, Montparnasse, Austerlitz and more, all as one entry. Lyon and Lille are the same.
+- Treating that as a single station let the app offer 15-minute changes across the whole city. In the live data, **21,611 of the connections it was willing to propose** — one in eight of every Paris change — were of that kind.
+- So those cities carry their own minimum: an hour for Paris, half an hour for Lyon, twenty-five minutes for Lille.
+- But a plain floor is too blunt: changing from one Gare du Nord train to another really is a fifteen-minute job. The data never says which terminus a train uses — yet the **line** implies it, since every Atlantique service leaves Montparnasse and every Sud-Est one Gare de Lyon. When both legs work out to the same terminus, the ordinary minimum applies.
+- When the terminus can't be worked out, the app assumes the worst. An unknown one might be across the city, and offering a trip that can't be made is worse than missing one that could.
+
+```mermaid
+flowchart TD
+  A["Change trains here"] --> B{"Is this station really a whole city?"}
+  B -- "No (Rennes)" --> K["15 minutes is fine"]
+  B -- "Yes (Paris)" --> C{"Do both trains use the same terminus?"}
+  C -- "Yes (Nord → Nord)" --> K
+  C -- "No, or can't tell" --> X["Needs the city's own minimum"]
+```
+
+---
+
 ## 3. The "one sweep to everywhere" trick
 
 **In one line:** Instead of asking "can I get to city X?" over and over for every city, the app answers "where can I get to, and what is the best plan for each?" all in a single pass.
