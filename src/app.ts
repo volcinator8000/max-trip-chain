@@ -2008,11 +2008,36 @@ function refineWithHubs(): void {
       extraKey = `${extraKey}+${round.map((c) => c.station).join("+")}`;
       deps.trains = poolFrom(merged, extraKey);
       registerStations(gained);
-      renderSearch();
+      rerenderAfterRefine();
       // Let the browser paint (and the user act) between rounds.
       await new Promise((r) => setTimeout(r, 0));
     }
   })();
+}
+
+/**
+ * Redraw the results after a refinement round has widened the pool.
+ *
+ * `renderSearch` only ever APPENDS — every other caller pairs it with a clear first — so
+ * calling it bare stacked a fresh copy of the whole list, toolbar and all, on top of the
+ * previous one. Three rounds meant three copies, which looked like the search finding ever
+ * more journeys when it was finding the same twenty repeatedly.
+ *
+ * Unlike {@link refreshInPlace} this deliberately does NOT restamp the URL or mirror
+ * anything back into the form: nothing the user did triggered this, so it must not disturb
+ * a staged edit or push history.
+ */
+function rerenderAfterRefine(): void {
+  // Never redraw under someone reading a drilled-in journey. The wider pool is already in
+  // place and the next navigation will use it; yanking the page away mid-read would not be
+  // an improvement.
+  if (currentDetail()) return;
+  const scroller = resultsScroller();
+  const scrollY = scroller ? scroller.scrollTop : window.scrollY;
+  clear(refs.results);
+  renderSearch();
+  if (scroller) scroller.scrollTop = scrollY;
+  else window.scrollTo({ top: scrollY });
 }
 
 /** Union of two train lists, without the duplicates a shared leg would produce. */

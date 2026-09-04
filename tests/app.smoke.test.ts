@@ -938,6 +938,31 @@ describe("app (jsdom smoke)", () => {
     expect((root.querySelector(".form-cal-picked") as HTMLElement).textContent).toContain("→");
   });
 
+  it("re-rendering in place replaces the results, never stacks a second copy", () => {
+    // renderSearch only ever APPENDS, so every path that redraws must clear first. The
+    // background refinement did not, and quietly rendered the same twenty journeys three
+    // times over — which read as the search finding ever more trains.
+    const root = setup(
+      `?mode=od&from=${encodeURIComponent("PARIS (intramuros)")}&to=${encodeURIComponent("LYON (intramuros)")}&date=2026-06-25`,
+    );
+    const toolbars = (): number => root.querySelectorAll(".list-toolbar").length;
+    const journeys = (): number => root.querySelectorAll(".journey-body").length;
+    expect(toolbars()).toBe(1);
+    const before = journeys();
+    expect(before).toBeGreaterThan(0);
+
+    // Any in-place redraw: pick a different day on the route calendar.
+    const other = Array.from(root.querySelectorAll<HTMLElement>(".cal-cell.ok")).find(
+      (c) => !c.classList.contains("sel"),
+    );
+    if (other) other.click();
+
+    expect(toolbars(), "a redraw must not leave two toolbars").toBe(1);
+    // And the list itself must not be doubled: distinct rows, not repeats.
+    const texts = Array.from(root.querySelectorAll(".journey-body")).map((c) => c.textContent ?? "");
+    expect(new Set(texts).size, "duplicate journey cards rendered").toBe(texts.length);
+  });
+
   it("links the calendars: clicking a departure day restarts the return calendar from it", () => {
     const root = setup(
       `?mode=od&from=${encodeURIComponent("PARIS (intramuros)")}&to=${encodeURIComponent("LYON (intramuros)")}&date=2026-06-25&rt=round`,
