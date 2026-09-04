@@ -2032,6 +2032,20 @@ function refineWithHubs(): void {
 }
 
 /**
+ * The "what am I searching?" row: enabled countries, paid trains, subscriptions —
+ * or an invitation to add countries when it is still SNCF-only.
+ */
+function activeSetupRow(): HTMLElement {
+  const labels: string[] = [];
+  for (const p of NETWORK_PROFILES) {
+    if (settings.networks.includes(p.id)) labels.push(`${p.operator} · ${countryName(p.country)}`);
+  }
+  if (settings.showPaid) labels.push(t("badge_paid"));
+  if (labels.length === 0) labels.push(t("setup_france_only"));
+  return render.activeSetupEl(labels, t("setup_hint"), openSettings);
+}
+
+/**
  * Redraw the results after a refinement round has widened the pool.
  *
  * `renderSearch` only ever APPENDS — every other caller pairs it with a clear first — so
@@ -2077,14 +2091,32 @@ function mergeTrains(a: MaxTrain[], b: MaxTrain[]): MaxTrain[] {
  * really is empty and there is nothing left to offer.
  */
 function paidNudgeEls(): HTMLElement[] {
-  if (settings.showPaid) return [];
-  return [
-    render.paidCtaEl(t("paid_cta"), () => {
-      settings = { ...settings, showPaid: true };
-      store.saveSettings(settings);
-      runSearch();
-    }),
-  ];
+  const out: HTMLElement[] = [];
+  // Too few changes allowed is the commonest reason a real trip isn't found, and the
+  // least discoverable: a cross-border journey usually needs two. Lyon → Vielsalm
+  // (Bruxelles-Midi, then Liège) returns nothing at one change and is perfectly
+  // ordinary at two, with nothing on screen to suggest trying it.
+  if (query.maxConnections < 2) {
+    const want = query.maxConnections + 1;
+    out.push(
+      render.paidCtaEl(t("more_changes_cta", { n: want }), () => {
+        query = { ...query, maxConnections: want };
+        refs.maxConnections.value = String(want);
+        store.updateUrl(query, formSnapshot(currentDetail()));
+        runSearch();
+      }),
+    );
+  }
+  if (!settings.showPaid) {
+    out.push(
+      render.paidCtaEl(t("paid_cta"), () => {
+        settings = { ...settings, showPaid: true };
+        store.saveSettings(settings);
+        runSearch();
+      }),
+    );
+  }
+  return out;
 }
 
 /**
@@ -2326,6 +2358,10 @@ function renderSearch(): void {
       el("button", { class: "back-btn", type: "button", text: `← ${t("act_back")}`, on: { click: goBack } }),
     );
   }
+
+  // What this search is actually looking at. Kept to one quiet row, but always
+  // present: "no results" and "that country is switched off" looked identical before.
+  refs.results.append(activeSetupRow());
 
   // Still fetching the interchange timetables that unlock more connections. An
   // aria-live line, because the list can change under a screen-reader user too.
@@ -3354,7 +3390,7 @@ function runTripSearch(c: RenderCtx): void {
       el("p", { class: "muted ret-summary", text: retSameDay ? t("nights_sameday") : t("getaway_nights", { n: nights }) }),
     );
     if (list.length === 0) {
-      retList.append(render.emptyEl(t("ret_none")));
+      retList.append(render.emptyEl(t("ret_none")), ...paidNudgeEls());
       return;
     }
     list.forEach((j, idx) =>

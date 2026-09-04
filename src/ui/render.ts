@@ -1342,6 +1342,27 @@ export function emptyEl(message: string): HTMLElement {
 }
 
 /**
+ * A one-line summary of what the search is currently set to look at: which countries,
+ * whether paid trains count, which subscriptions are held.
+ *
+ * All of that lived only inside the settings modal, so the commonest failure was
+ * invisible — a search returning nothing because a country was switched off looked
+ * identical to one where no train runs. Clicking anywhere on the row opens settings.
+ */
+export function activeSetupEl(labels: string[], hint: string, onOpen: () => void): HTMLElement {
+  return el(
+    "button",
+    {
+      class: "active-setup",
+      type: "button",
+      attrs: { title: hint, "aria-label": `${labels.join(", ")} — ${hint}` },
+      on: { click: onOpen },
+    },
+    labels.map((text) => el("span", { class: "chip chip-setup", text })),
+  );
+}
+
+/**
  * The nudge shown when a search finds no free MAX seat and paid trains are switched
  * off: the answer "nothing is free that day" is much more useful next to "…but 40
  * trains do run — show them?".

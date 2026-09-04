@@ -1790,6 +1790,34 @@ a {
   font-weight: 640;
   font-variant-numeric: tabular-nums;
 }
+/* The "what am I searching?" row above the results: quiet, one line, tappable to
+   open settings. Deliberately always present — a country being switched off used to
+   be indistinguishable from there being no train. */
+.active-setup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  width: 100%;
+  margin: 0 0 0.5rem;
+  padding: 0.2rem 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: start;
+}
+.chip-setup {
+  background: var(--surface-2);
+  color: var(--muted);
+  border-color: var(--border);
+  font-size: 0.72rem;
+  font-weight: 560;
+}
+.active-setup:hover .chip-setup,
+.active-setup:focus-visible .chip-setup {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
 /* "Still looking for better connections" — a transient, quieter notice than the
    warnings that share .notice, with a soft pulse so it reads as work in progress
    rather than something to act on. */
