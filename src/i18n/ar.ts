@@ -274,6 +274,7 @@ export const ar: Dict = {
   sort_closest: "الأقرب",
   sort_fastest: "الأسرع",
   sort_cheapest: "الأرخص",
+  refine_working: "جارٍ البحث عن اتصالات أفضل… ({round}/{total})",
   sort_arrival: "الوصول الأبكر",
   sort_departure: "المغادرة الأبكر",
   sort_name: "أ–ي",

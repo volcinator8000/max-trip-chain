@@ -275,6 +275,7 @@ export const es: Dict = {
   sort_closest: "Más cercano",
   sort_fastest: "Más rápido",
   sort_cheapest: "Más barato",
+  refine_working: "Buscando mejores conexiones… ({round}/{total})",
   sort_arrival: "Llegada más temprana",
   sort_departure: "Salida más temprana",
   sort_name: "A–Z",

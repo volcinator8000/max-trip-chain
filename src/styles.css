@@ -1790,6 +1790,40 @@ a {
   font-weight: 640;
   font-variant-numeric: tabular-nums;
 }
+/* "Still looking for better connections" — a transient, quieter notice than the
+   warnings that share .notice, with a soft pulse so it reads as work in progress
+   rather than something to act on. */
+.refine-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.refine-notice::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: refine-pulse 1.1s ease-in-out infinite;
+}
+@keyframes refine-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+/* Motion-sensitive users get the dot without the pulse — both the OS setting and
+   the app's own "reduce motion" switch (html[data-reduce-motion="on"]). */
+@media (prefers-reduced-motion: reduce) {
+  .refine-notice::before {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+[data-reduce-motion="on"] .refine-notice::before {
+  animation: none;
+  opacity: 0.7;
+}
 /* Paid train: runs, but no free MAX seat. Amber rather than the accent green, so a
    paid result can never be skimmed as a free one — this is the whole point of the
    badge. Same amber family as the one-change chip, which already reads as "caveat". */

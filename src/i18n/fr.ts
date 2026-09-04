@@ -285,6 +285,7 @@ export const fr = {
   sort_closest: "Plus proche",
   sort_fastest: "Plus rapide",
   sort_cheapest: "Le moins cher",
+  refine_working: "Recherche de meilleures correspondances… ({round}/{total})",
   sort_arrival: "Arrivée la plus tôt",
   sort_departure: "Départ le plus tôt",
   sort_name: "A–Z",

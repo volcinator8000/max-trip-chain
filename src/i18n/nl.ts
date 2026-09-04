@@ -274,6 +274,7 @@ export const nl: Dict = {
   sort_closest: "Dichtstbij",
   sort_fastest: "Snelste",
   sort_cheapest: "Goedkoopst",
+  refine_working: "Zoeken naar betere overstappen… ({round}/{total})",
   sort_arrival: "Vroegste aankomst",
   sort_departure: "Vroegste vertrek",
   sort_name: "A–Z",

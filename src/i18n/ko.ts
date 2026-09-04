@@ -275,6 +275,7 @@ export const ko: Dict = {
   sort_closest: "가까운 순",
   sort_fastest: "빠른 순",
   sort_cheapest: "가장 저렴",
+  refine_working: "더 나은 환승편을 찾는 중… ({round}/{total})",
   sort_arrival: "가장 빠른 도착",
   sort_departure: "가장 빠른 출발",
   sort_name: "가나다순",

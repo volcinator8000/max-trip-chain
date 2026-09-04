@@ -1807,6 +1807,15 @@ let extraKey = "";
 let loadedStations: string[] = [];
 /** Cancels a background refinement that a newer search has superseded. */
 let refineToken = 0;
+/**
+ * Progress of the background refinement, or null when nothing is running.
+ *
+ * Rendered by renderSearch rather than poked into the DOM, so it survives the redraw
+ * each round performs. Without it the app silently rewrote the results under the
+ * user — the reason "nothing showed up" was reported for a search that was in fact
+ * still working.
+ */
+let refineState: { round: number; total: number } | null = null;
 
 /**
  * How many legs of extra hub data to pull in while refining a search.
@@ -1942,6 +1951,7 @@ function refineWithHubs(): void {
   const sources = activeSources().filter((p) => p.shardDir);
   if (sources.length === 0) return;
   const token = ++refineToken;
+  refineState = null;
   void (async () => {
     // The hubs the endpoints ACTUALLY touch come first — cheapest-first was backwards.
     // Ranking by size fetched the least-connected hubs and spent the budget before
@@ -1994,8 +2004,9 @@ function refineWithHubs(): void {
     }
     if (batch.length) rounds.push(batch);
 
-    for (const round of rounds) {
+    for (const [i, round] of rounds.entries()) {
       if (token !== refineToken) return; // a newer search has taken over
+      refineState = { round: i + 1, total: rounds.length };
       const gained = (
         await Promise.all(round.map((c) => loadAllStationTrains([c.profile], [c.station])))
       ).flat();
@@ -2011,6 +2022,11 @@ function refineWithHubs(): void {
       rerenderAfterRefine();
       // Let the browser paint (and the user act) between rounds.
       await new Promise((r) => setTimeout(r, 0));
+    }
+    // Done looking: drop the line, and redraw once so it disappears.
+    if (token === refineToken && refineState) {
+      refineState = null;
+      rerenderAfterRefine();
     }
   })();
 }
@@ -2153,6 +2169,9 @@ function registerStations(trains: MaxTrain[]): void {
 
 function runSearch(): void {
   searchToken++;
+  // A new search supersedes any refinement still running for the old one.
+  refineToken++;
+  refineState = null;
   const token = searchToken;
   searchLoading = true;
   searchHeldBack = false;
@@ -2305,6 +2324,18 @@ function renderSearch(): void {
   if (currentDetail()) {
     refs.results.append(
       el("button", { class: "back-btn", type: "button", text: `← ${t("act_back")}`, on: { click: goBack } }),
+    );
+  }
+
+  // Still fetching the interchange timetables that unlock more connections. An
+  // aria-live line, because the list can change under a screen-reader user too.
+  if (refineState) {
+    refs.results.append(
+      el("p", {
+        class: "notice refine-notice",
+        text: t("refine_working", { round: refineState.round, total: refineState.total }),
+        attrs: { role: "status", "aria-live": "polite" },
+      }),
     );
   }
 

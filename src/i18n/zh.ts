@@ -274,6 +274,7 @@ export const zh: Dict = {
   sort_closest: "最近",
   sort_fastest: "最快",
   sort_cheapest: "最便宜",
+  refine_working: "正在寻找更好的换乘… ({round}/{total})",
   sort_arrival: "最早到达",
   sort_departure: "最早出发",
   sort_name: "A–Z",
