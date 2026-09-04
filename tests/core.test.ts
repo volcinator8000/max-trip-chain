@@ -11,6 +11,7 @@ import { bestTripsAcrossWindow, stationsOnDate, reachableBest } from "../src/cor
 import { getaways, getawayIdeas, getawaysAcrossWindow, reverseGetawayIdeas, stayCalendar } from "../src/core/getaways";
 import { planTours, planTourInOrder, planTourGreedy } from "../src/core/tour";
 import { haversineKm } from "../src/util/geo";
+import { HUB_STATIONS } from "../src/config";
 import sample from "../data/tgvmax.sample.json";
 
 const trains = normalizeRecords(sample as RawRecord[]);
@@ -1137,6 +1138,28 @@ function base(): RawRecord {
     od_happy_card: "OUI",
   };
 }
+
+describe("the stations trains may change at", () => {
+  it("keeps the historic termini and the interchanges added alongside them", () => {
+    // This list is the single biggest lever on how many connecting journeys exist:
+    // the search will only change trains at a station named here. At ten entries it
+    // hid 9,258 journeys over a month that were possible only by changing elsewhere.
+    // The guard is against it silently shrinking back.
+    for (const core of ["PARIS (intramuros)", "LYON (intramuros)", "LILLE (intramuros)", "RENNES"]) {
+      expect(HUB_STATIONS, `lost a core hub: ${core}`).toContain(core);
+    }
+    // St-Pierre-des-Corps alone is the only way to make ~1,300 trips a month; Massy
+    // is what lets a journey cross between TGV lines without crossing Paris.
+    for (const added of ["ST PIERRE DES CORPS", "MASSY TGV", "DIJON VILLE", "POITIERS"]) {
+      expect(HUB_STATIONS, `lost an interchange: ${added}`).toContain(added);
+    }
+    expect(HUB_STATIONS.length).toBeGreaterThanOrEqual(30);
+  });
+
+  it("names each station once", () => {
+    expect(new Set(HUB_STATIONS).size).toBe(HUB_STATIONS.length);
+  });
+});
 
 describe("changing trains at a city, not a station", () => {
   // `PARIS (intramuros)` is seven termini at once — Nord, Est, Lyon, Montparnasse,

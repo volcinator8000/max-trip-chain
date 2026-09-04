@@ -40,7 +40,7 @@ Free, no account, open-source, and serverless — it runs entirely in your brows
 
 | | |
 | --- | --- |
-| **Connections** | Multi-leg up to 6 changes via hubs, optional **Via** stopover, overnight-stopover mode |
+| **Connections** | Multi-leg up to 6 changes via 40 interchange stations (chosen from the data by which ones actually unlock trips), optional **Via** stopover, overnight-stopover mode |
 | **Round trips & night trains** | Round trips pair the earliest-arriving outbound with the latest feasible return to maximize time there; night mode covers genuine *Intercités de Nuit* only |
 | **Cheapest first** | Order results by what you'd actually pay — free, then reservation-only, then full fare. Ranked from your passes, not from prices: no open feed publishes fares |
 | **Filters** | Time window, max duration, MAX JEUNE vs SENIOR, train type, region |
