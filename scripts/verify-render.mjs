@@ -45,14 +45,22 @@ const browser = await puppeteer.launch({
 const P = encodeURIComponent("PARIS (intramuros)");
 const T = encodeURIComponent("TOULOUSE MATABIAU");
 const DATE = new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10);
+// `needsResults` pages must not merely mount: they must put SOMETHING in the results
+// panel — journeys, or an explicit "nothing found" state. `#app` length alone cannot
+// tell those apart from a shell that rendered no results at all, because the header
+// and form are tens of kilobytes on their own.
 const pages = [
   { name: "home", url: BASE },
-  { name: "exact-trip", url: `${BASE}?mode=od&from=${P}&to=${T}&date=${DATE}` },
-  { name: "tour", url: `${BASE}?mode=tour&from=${P}&cities=${encodeURIComponent("LYON (intramuros)")}&date=${DATE}&dmin=1&dmax=3` },
+  { name: "exact-trip", url: `${BASE}?mode=od&from=${P}&to=${T}&date=${DATE}`, needsResults: true },
+  {
+    name: "tour",
+    url: `${BASE}?mode=tour&from=${P}&cities=${encodeURIComponent("LYON (intramuros)")}&date=${DATE}&dmin=1&dmax=3`,
+    needsResults: true,
+  },
 ];
 
 const failures = [];
-for (const { name, url } of pages) {
+for (const { name, url, needsResults } of pages) {
   const page = await browser.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -71,8 +79,17 @@ for (const { name, url } of pages) {
   await new Promise((r) => setTimeout(r, 1200));
   const appLen = await page.evaluate(() => document.getElementById("app")?.innerHTML.length ?? -1);
   if (appLen < MIN_APP_HTML) failures.push(`[${name}] #app rendered only ${appLen} chars (blank?)`);
+  // Deliberately not "at least one journey": whether a given day has a free MAX seat
+  // is a property of the snapshot, not of the code, and asserting it would make the
+  // gate flake on quiet days. "The panel is not empty" is the real invariant.
+  const resultKids = await page.evaluate(
+    () => document.querySelector("#results, .results")?.children.length ?? -1,
+  );
+  if (needsResults && resultKids < 1) {
+    failures.push(`[${name}] results panel is empty — the app mounted but rendered nothing for the query`);
+  }
   if (errors.length) failures.push(`[${name}] page errors: ${errors.join(" | ")}`);
-  console.log(`  ${name}: #app=${appLen} chars, errors=${errors.length}`);
+  console.log(`  ${name}: #app=${appLen} chars, results=${resultKids} nodes, errors=${errors.length}`);
   await page.close();
 }
 

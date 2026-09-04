@@ -17,11 +17,13 @@
  * Exit 0 = every scenario passed; exit 1 = at least one failed (prints details).
  */
 import http from "node:http";
-import { readFileSync, existsSync, statSync, mkdtempSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, statSync, mkdtempSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
+import { encodeShard } from "../src/data/shard";
+import { stationFileName } from "../src/data/stationShard";
 
 const DIST = join(process.cwd(), "dist");
 if (!existsSync(join(DIST, "index.html"))) {
@@ -96,6 +98,45 @@ function pickRoundTripDates() {
 }
 const [RT_DATE, RT_DATE2] = pickRoundTripDates();
 
+// --- synthetic foreign network ----------------------------------------------
+// CI never runs fetch-networks, so no real shards exist on disk when these gates run.
+// Rather than skip the whole foreign-network surface (which is how it went untested),
+// write a tiny network into dist/ using the REAL codec and the REAL file-naming — so a
+// change to either breaks this fixture too, instead of it drifting quietly.
+const E2E_NET = "sncb"; // must be an id the app knows; SNCB is the Belgian profile
+const E2E_A = "E2E ALPHA";
+const E2E_B = "E2E BETA";
+const NET_DATE = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+
+function writeSyntheticNetwork() {
+  const dir = join(DIST, "data", E2E_NET);
+  mkdirSync(join(dir, "s"), { recursive: true });
+  const legs = [
+    { date: NET_DATE, origin: E2E_A, destination: E2E_B, departMin: 9 * 60, arriveMin: 11 * 60, trainNo: "E1", category: "IC" },
+    { date: NET_DATE, origin: E2E_A, destination: E2E_B, departMin: 14 * 60, arriveMin: 16 * 60, trainNo: "E2", category: "IC" },
+  ];
+  const meta = { source: E2E_NET, operator: "SNCB", free: false };
+  // A leg is filed under BOTH endpoints, exactly as the converter does.
+  for (const station of [E2E_A, E2E_B]) {
+    writeFileSync(join(dir, "s", stationFileName(station)), JSON.stringify(encodeShard(legs, meta)), "utf-8");
+  }
+  writeFileSync(
+    join(dir, "index.json"),
+    JSON.stringify({ v: 2, source: E2E_NET, operator: "SNCB", country: "BE", hubs: [E2E_A],
+      counts: { [E2E_A]: legs.length, [E2E_B]: legs.length } }),
+    "utf-8",
+  );
+  writeFileSync(
+    join(dir, "stations.json"),
+    JSON.stringify([
+      { id: E2E_A, label: "E2E Alpha", lat: 50.84, lng: 4.35, country: "BE" },
+      { id: E2E_B, label: "E2E Beta", lat: 51.22, lng: 4.4, country: "BE" },
+    ]),
+    "utf-8",
+  );
+}
+writeSyntheticNetwork();
+
 // --- tiny assertion harness -------------------------------------------------
 const results = [];
 class Fail extends Error {}
@@ -110,6 +151,16 @@ function assert(cond, msg) {
  */
 async function scenario(name, url, body, opts = {}) {
   const page = await browser.newPage();
+  // Settings live in localStorage and the app reads them at boot, so anything that
+  // needs a non-default setup must seed BEFORE the first script runs. Without this
+  // every scenario ran on the defaults, which is why no foreign network, pass or the
+  // paid toggle was ever exercised end to end.
+  if (opts.settings) {
+    await page.evaluateOnNewDocument((s) => {
+      localStorage.setItem("mj.settings", JSON.stringify(s));
+    }, { lang: "en", theme: "auto", card: "jeune", view: "list", density: "comfortable",
+         reduceMotion: false, map: false, passRoutes: {}, ...opts.settings });
+  }
   // Default to the desktop UI: stay above the 860px mobile breakpoint, below which
   // the form collapses into a floating search bar and the tabs move behind a menu.
   // Pass opts.viewport to exercise the mobile layout instead.
@@ -569,6 +620,66 @@ await scenario("pwa: manifest is served and valid JSON", BASE, async (page) => {
   const m = JSON.parse(res.text);
   assert(Array.isArray(m.icons) && m.icons.length > 0, "manifest has no icons");
 });
+
+
+// 16. A foreign network, once enabled, is searched and its trains are badged.
+await scenario(
+  "networks: an enabled network's trains appear, badged with its operator",
+  `${BASE}?mode=od&from=${enc(E2E_A)}&to=${enc(E2E_B)}&date=${NET_DATE}&conn=0`,
+  async (page) => {
+    await until(async () => (await $count(page, ".journey-body")) > 0);
+    const cards = await $count(page, ".journey-body");
+    assert(cards >= 2, `expected the fixture's 2 trains, got ${cards}`);
+    assert((await $count(page, ".chip-operator")) > 0, "no operator chip on a foreign train");
+    const setup = await page.$$eval(".active-setup .chip-setup", (els) => els.map((e) => e.textContent));
+    assert(setup.some((x) => /SNCB/.test(x)), `active-setup row does not name the network: ${setup.join("|")}`);
+  },
+  { settings: { showPaid: false, networks: [E2E_NET], passes: ["sncf-max-jeune", "sncb-go-unlimited"] } },
+);
+
+// 17. Subscriptions decide what "free" means: without a Belgian pass those same
+//     trains are not covered, so the free-only view must hide them.
+await scenario(
+  "passes: without a covering pass the network's trains are hidden",
+  `${BASE}?mode=od&from=${enc(E2E_A)}&to=${enc(E2E_B)}&date=${NET_DATE}&conn=0`,
+  async (page) => {
+    await until(async () => (await $count(page, ".empty")) > 0);
+    // Honest limitation: this asserts an ABSENCE, so it would also pass if networks
+    // stopped loading entirely. Attempts to pin it down on the title were vacuous —
+    // prettyLabel() renders the same name from the id alone. The positive coverage
+    // that genuinely fails when network loading breaks is scenarios 16, 18 and 19
+    // (verified by deliberately breaking activeSources and watching them go red).
+    assert((await $count(page, ".journey-body")) === 0, "uncovered trains were shown in the free view");
+    const offers = await page.$$eval(".paid-cta button", (els) => els.map((e) => e.textContent));
+    assert(offers.length > 0, "an empty result offered no way forward");
+  },
+  { settings: { showPaid: false, networks: [E2E_NET], passes: ["sncf-max-jeune"] } },
+);
+
+// 18. The paid toggle brings those same trains back, marked as costing money.
+await scenario(
+  "paid: showing paid trains reveals what no pass covers",
+  `${BASE}?mode=od&from=${enc(E2E_A)}&to=${enc(E2E_B)}&date=${NET_DATE}&conn=0`,
+  async (page) => {
+    await until(async () => (await $count(page, ".journey-body")) > 0);
+    assert((await $count(page, ".chip-paid")) > 0, "paid trains shown without a Paid badge");
+  },
+  { settings: { showPaid: true, networks: [E2E_NET], passes: ["sncf-max-jeune"] } },
+);
+
+// 19. "Cheapest" is offered once anything can cost money, and survives a shared link.
+await scenario(
+  "sort: cheapest is offered and round-trips through the URL",
+  `${BASE}?mode=od&from=${enc(E2E_A)}&to=${enc(E2E_B)}&date=${NET_DATE}&conn=0&sort=cheapest`,
+  async (page) => {
+    await until(async () => (await $count(page, ".journey-body")) > 0);
+    const opts = await page.$$eval(".sort-select option", (els) => els.map((e) => e.value));
+    assert(opts.includes("cheapest"), `sort picker lacks "cheapest": ${opts.join(",")}`);
+    const chosen = await page.$eval(".sort-select", (el) => el.value);
+    assert(chosen === "cheapest", `shared sort dropped from the URL (got "${chosen}")`);
+  },
+  { settings: { showPaid: true, networks: [E2E_NET], passes: ["sncf-max-jeune"] } },
+);
 
 // ---------------------------------------------------------------------------
 await browser.close();
