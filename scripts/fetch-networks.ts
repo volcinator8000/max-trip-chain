@@ -149,6 +149,14 @@ const CACHE_DIR = path.resolve(REPO_ROOT, ".gtfs-cache");
 const WINDOW_DAYS = 30;
 /** Ignore absurd legs (bad data, or a pair that is really two separate services). */
 const MAX_LEG_MIN = 24 * 60;
+/**
+ * Floors a converted network must clear before it is allowed to replace the previous
+ * one. Set low deliberately — this is a sanity check against a broken feed, not a
+ * quality bar, and a genuinely small network (Luxembourg has 91 stations) must pass.
+ */
+const MIN_STATIONS = 20;
+const MIN_LEGS = 1_000;
+
 /** Extra ranking weight for each trip that starts or ends at a station. */
 const TERMINUS_WEIGHT = 4;
 /** How many of a network's busiest stations to publish as interchange hubs. */
@@ -275,7 +283,11 @@ async function download(url: string, dest: string): Promise<void> {
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   if (!res.body) throw new Error("empty response body");
   // Stream to disk: these archives reach 200 MB and must not be held in memory.
-  const out = fs.createWriteStream(dest);
+  // Download to a sidecar and rename only on success: the reuse check below is
+  // mtime-only, so a half-written zip from an aborted run would otherwise look fresh
+  // and be reused for six hours.
+  const partial = `${dest}.part`;
+  const out = fs.createWriteStream(partial);
   const reader = res.body.getReader();
   for (;;) {
     const { done, value } = await reader.read();
@@ -288,6 +300,7 @@ async function download(url: string, dest: string): Promise<void> {
     out.end(() => resolve());
     out.on("error", reject);
   });
+  fs.renameSync(partial, dest);
   console.log(`  downloaded ${(fs.statSync(dest).size / 1_048_576).toFixed(1)} MB`);
 }
 
@@ -522,12 +535,6 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
   // --- emit --------------------------------------------------------------------
   const outDir = path.join(OUT_ROOT, net.id);
   fs.mkdirSync(outDir, { recursive: true });
-  // Clear the previous run so a station the feed has dropped doesn't linger.
-  for (const f of fs.readdirSync(outDir)) {
-    const full = path.join(outDir, f);
-    if (f.endsWith(".json")) fs.unlinkSync(full);
-    else if (f === "s") fs.rmSync(full, { recursive: true, force: true });
-  }
 
   // Coordinates for every allowlisted station, so foreign results reach the map.
   // Every OTHER spelling the crosswalk knows for a canonical id, so the app can offer
@@ -627,6 +634,26 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
     }
   }
 
+  // Nothing has been deleted yet, and that is the point. A feed can parse cleanly and
+  // still yield nothing usable — a service calendar entirely outside the window, a
+  // reshuffled route_type — and the old code cleared the output directory BEFORE
+  // computing any of this. The network was then silently wiped on the deployed site,
+  // with an index claiming zero stations. Refuse instead, and leave yesterday's data
+  // standing: main() already isolates one network's failure from the others.
+  if (byStation.size < MIN_STATIONS || legs.length < MIN_LEGS) {
+    throw new Error(
+      `refusing to publish: only ${byStation.size} stations and ${legs.length} legs ` +
+        `(need ${MIN_STATIONS}/${MIN_LEGS}). Keeping the previous data.`,
+    );
+  }
+
+  // Only now is it safe to drop the previous run, so a station the feed dropped
+  // doesn't linger.
+  for (const f of fs.readdirSync(outDir)) {
+    const full = path.join(outDir, f);
+    if (f.endsWith(".json")) fs.unlinkSync(full);
+    else if (f === "s") fs.rmSync(full, { recursive: true, force: true });
+  }
   const stationsDir = path.join(outDir, "s");
   fs.mkdirSync(stationsDir, { recursive: true });
   let bytes = 0;

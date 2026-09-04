@@ -28,6 +28,7 @@ declare module "fs" {
   export function readFileSync(file: string, encoding: BufferEncoding): string;
   export function readdirSync(path: string): string[];
   export function unlinkSync(path: string): void;
+  export function renameSync(from: string, to: string): void;
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
   export function statSync(path: string): { size: number; mtimeMs: number };
   export function createReadStream(path: string, options?: { highWaterMark?: number }): NodeReadStream;

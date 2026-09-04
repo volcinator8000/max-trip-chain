@@ -269,6 +269,24 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // "Not empty" was the only bar, so a one-record reply would happily replace a good
+  // 64,000-record snapshot and the site would go nearly blank until someone noticed.
+  // Compare against what is already committed: a real day-to-day swing is a few per
+  // cent, so a collapse to under half is a broken feed, not news.
+  try {
+    const prev = JSON.parse(fs.readFileSync(OUT_META, "utf-8")) as Partial<Meta>;
+    const before = typeof prev.recordCount === "number" ? prev.recordCount : 0;
+    if (before > 0 && records.length < before * 0.5) {
+      console.error(
+        `[fetch-data] Refusing to overwrite: ${records.length} reservable records is less than half ` +
+          `the previous ${before}. That is a broken feed, not a quiet day. Keeping existing data.`,
+      );
+      process.exit(1);
+    }
+  } catch {
+    // No previous metadata (a first run, or a clean checkout) — nothing to compare to.
+  }
+
   // A hub the feed never names is invisible: no error, just journeys that are never
   // found. "LILLE" sat in HUB_STATIONS for months while the data only ever said
   // "LILLE (intramuros)", so Lille silently never worked as an interchange. Check it
@@ -299,7 +317,10 @@ async function main(): Promise<void> {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  fs.writeFileSync(OUT_DATA, JSON.stringify(records), "utf-8");
+  // Temp file + rename: the snapshot is served to every visitor, and a process killed
+  // mid-write would otherwise leave truncated JSON that nothing can parse.
+  fs.writeFileSync(`${OUT_DATA}.part`, JSON.stringify(records), "utf-8");
+  fs.renameSync(`${OUT_DATA}.part`, OUT_DATA);
   console.log(`[fetch-data] Wrote ${records.length} records → ${OUT_DATA}`);
 
   fs.writeFileSync(OUT_META, JSON.stringify(meta, null, 2), "utf-8");
