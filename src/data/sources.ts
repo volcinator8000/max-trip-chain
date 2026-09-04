@@ -44,6 +44,8 @@ interface ShardIndex {
   v: number;
   /** The network's busiest stations, published as its interchange hubs. */
   hubs?: string[];
+  /** Border stations where this network meets another's — see the converter. */
+  interchanges?: string[];
   /** Legs held in each station's shard — used to fetch cheap files first. */
   counts?: Record<string, number>;
 }
@@ -93,7 +95,12 @@ function shardIndex(profile: DatasetProfile): Promise<SourceIndex | null> {
         // A network's hubs come from its own data, not from a list in the app: the
         // connection search only ever changes trains at a hub, so a network with none
         // would offer direct trains and nothing else.
-        const hubs = Array.isArray(idx.hubs) && idx.hubs.length ? idx.hubs : profile.hubs;
+        // profile.hubs is optional, so never assume it is an array.
+        const published = Array.isArray(idx.hubs) && idx.hubs.length ? idx.hubs : (profile.hubs ?? []);
+        // Border interchanges are places to change trains too. They are quiet by
+        // nature — a frontier station sees few services — so they never rank as hubs,
+        // yet they are the only points at which two countries' networks meet.
+        const hubs = [...new Set([...published, ...(idx.interchanges ?? [])])];
         loadedHubs.set(profile.id, hubs);
         return { hubs, counts: idx.counts ?? {} };
       })

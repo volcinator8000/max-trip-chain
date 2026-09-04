@@ -512,6 +512,7 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
     .slice(0, HUBS_PER_NETWORK)
     .map(([id]) => id);
   const hubSet = new Set(hubs);
+  const interchanges = [...crosswalkIds].filter((id) => callCount.has(id) && !hubSet.has(id));
   // Every station the feed serves is searchable, even those that get only hub legs.
   const allow = new Set(callCount.keys());
 
@@ -685,6 +686,13 @@ async function convert(net: Network, zipPath: string, cw: Crosswalk, today: stri
       from: windowDates[0],
       to: windowDates[windowDates.length - 1],
       hubs,
+      // Border interchanges: crosswalk stations this feed actually serves. These are
+      // where one country's network hands over to another's, so the search must be
+      // able to change trains there — even when they are far too quiet to rank as
+      // hubs. Perpignan carries a handful of trains and is the ENTIRE France-Spain
+      // handover: without it "free as far as the border, then pay the short hop" —
+      // exactly the trip this app exists to find — cannot be built at all.
+      interchanges,
       // Leg count per station: the app reads it to fetch cheap files first and to
       // warn before pulling a very large one.
       counts,

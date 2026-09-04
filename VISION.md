@@ -78,6 +78,12 @@ canonical id wherever SNCF also serves the station.
 
 ## Still open
 
+- **Border interchanges are now usable.** A frontier station is quiet by nature, so it
+  never ranked as a hub — and the search only changes trains at hubs. Perpignan, the
+  entire France-Spain handover, was not one, so "free as far as the border, then pay
+  the short hop" could not be built at all. Each network now publishes the crosswalk
+  stations it serves as interchanges: SNCB gains 18 (including London St Pancras),
+  DB 12, NS 15, Renfe 2.
 - **Minor-to-minor legs.** Every station a feed serves is carried, but only joined to
   its network's major stations and hubs; a leg between two small halts on the same
   rural line is not emitted. All-pairs over the full Belgian list is 10.5M legs a
