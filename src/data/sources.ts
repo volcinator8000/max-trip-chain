@@ -30,7 +30,7 @@
  */
 
 import type { MaxTrain, SearchQuery } from "../types";
-import { coverageFor, discountFor, type PassDefinition, type RouteBinding } from "./passes";
+import { coverageWithPass, discountFor, type PassDefinition, type RouteBinding } from "./passes";
 import { decodeShard } from "./shard";
 import { stationFileName } from "./stationShard";
 import type { DatasetProfile } from "./profile";
@@ -348,9 +348,10 @@ export function buildPool(req: PoolRequest): MaxTrain[] {
   // rebuild — whereas copying them would double the peak memory of a pool that can
   // hold over a million trains.
   for (const t of req.extra) {
-    const coverage = coverageFor(t, held, bindings);
+    const { coverage, passId } = coverageWithPass(t, held, bindings);
     const discount = discountFor(t, held);
     t.coverage = coverage;
+    t.coveredBy = passId;
     t.discount = discount?.discountPercent ?? 0;
     t.discountPass = discount?.id;
     t.available = showPaid || coverage !== "paid";
@@ -361,11 +362,12 @@ export function buildPool(req: PoolRequest): MaxTrain[] {
   // advertised with a MAX seat at stops the pass doesn't cover (Bruxelles, Genève)
   // arrive `free: false`, and they still run, so a paid search has to include them.
   const snapshot: MaxTrain[] = req.free.map((t) => {
-    const coverage = coverageFor(t, held, bindings);
+    const { coverage, passId } = coverageWithPass(t, held, bindings);
     const discount = discountFor(t, held);
     return {
       ...t,
       coverage,
+      coveredBy: passId,
       discount: discount?.discountPercent ?? 0,
       discountPass: discount?.id,
       available: showPaid || coverage !== "paid",

@@ -123,6 +123,7 @@ export const fr = {
   net_offer_action: "Activer",
   badge_reserve: "Réservation",
   badge_reserve_hint: "Votre abonnement couvre ce trajet, mais une réservation ou un supplément reste payant.",
+  badge_covered_hint: "Couvert par votre abonnement {pass} — rien de plus à payer",
   set_passes: "Mes abonnements",
   set_passes_hint: "Le mode gratuit n'affiche que les trains couverts par ce que vous possédez.",
   pass_route_hint: "Valable uniquement entre deux gares — indiquez-les.",

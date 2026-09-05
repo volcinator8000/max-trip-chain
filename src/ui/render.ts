@@ -26,6 +26,12 @@ export interface RenderCtx {
    * to its own operator.
    */
   bookUrl: (origin: string, destination: string, date: string, time?: string, source?: string) => string;
+  /**
+   * Short display name for the subscription covering a train, or undefined when the
+   * badge should be suppressed. The app returns undefined while every result in the
+   * list is covered the same way — a chip on every single row says nothing.
+   */
+  passLabel?: (passId: string) => string | undefined;
   /** External travel-guide (Wikivoyage) URL for a station's city. */
   cityInfoUrl: (id: string) => string;
   /** Open the exact O→D trip. A getaway idea passes `open.date` — its advertised start day —
@@ -117,9 +123,15 @@ function tripSaveBtn(outbound: Journey, ctx: RenderCtx, inbound?: Journey): HTML
  * Falls back to the plain paid flag when no coverage was computed — that is the
  * default configuration, where everything shown already has a free MAX seat.
  */
-function costChips(train: MaxTrain): HTMLElement[] {
+function costChips(train: MaxTrain, ctx?: RenderCtx): HTMLElement[] {
   const chips: HTMLElement[] = [];
   const coverage = train.coverage ?? (train.paid ? "paid" : "free");
+  // Name the subscription that earns this train. Covered trains carried no badge at
+  // all before, so "free" was only ever inferable from the absence of a "Paid" chip.
+  const covering = train.coveredBy ? ctx?.passLabel?.(train.coveredBy) : undefined;
+  if (covering && coverage !== "paid") {
+    chips.push(el("span", { class: "chip chip-covered", text: covering, attrs: { title: t("badge_covered_hint", { pass: covering }) } }));
+  }
   if (coverage === "reserve") {
     chips.push(
       el("span", { class: "chip chip-reserve", text: t("badge_reserve"), attrs: { title: t("badge_reserve_hint") } }),
@@ -139,7 +151,7 @@ function costChips(train: MaxTrain): HTMLElement[] {
   return chips;
 }
 
-export function trainRowEl(train: MaxTrain): HTMLElement {
+export function trainRowEl(train: MaxTrain, ctx?: RenderCtx): HTMLElement {
   const time = el("span", { class: "train-time" }, [
     el("strong", { text: train.depart }),
     icon(I.arrow),
@@ -168,7 +180,7 @@ export function trainRowEl(train: MaxTrain): HTMLElement {
     // What this train costs the passes you hold. "Reserve" is the case that must not
     // be rounded to either neighbour: the pass covers the travel, but a seat or
     // supplement still costs money, so calling it free would mislead at the barrier.
-    ...costChips(train),
+    ...costChips(train, ctx),
   ]);
   return el("div", { class: "train-row" }, [time, meta]);
 }
@@ -588,13 +600,22 @@ export function reachTripRowEl(
  * can stack two of them in ONE ticket.
  */
 /** The cost chip for a whole journey: the worst leg wins (paid beats reserve beats free). */
-function journeyCostChips(j: Journey): HTMLElement[] {
+function journeyCostChips(j: Journey, ctx?: RenderCtx): HTMLElement[] {
   const worst = j.legs.reduce<"free" | "reserve" | "paid">((acc, l) => {
     const c = l.coverage ?? (l.paid ? "paid" : "free");
     if (acc === "paid" || c === "paid") return "paid";
     return acc === "reserve" || c === "reserve" ? "reserve" : "free";
   }, "free");
-  if (worst === "free") return [];
+  if (worst === "free") {
+    // Every leg covered, and all by the same subscription: say which, once, rather
+    // than repeating it down each leg of the card.
+    const ids = new Set(j.legs.map((l) => l.coveredBy));
+    const only = ids.size === 1 ? [...ids][0] : undefined;
+    const label = only ? ctx?.passLabel?.(only) : undefined;
+    return label
+      ? [el("span", { class: "chip chip-covered", text: label, attrs: { title: t("badge_covered_hint", { pass: label }) } })]
+      : [];
+  }
   return worst === "reserve"
     ? [el("span", { class: "chip chip-reserve", text: t("badge_reserve"), attrs: { title: t("badge_reserve_hint") } })]
     : [el("span", { class: "chip chip-paid", text: t("badge_paid"), attrs: { title: t("badge_paid_hint") } })];
@@ -629,7 +650,7 @@ function journeyBodyEl(j: Journey, ctx: RenderCtx, label?: string, dateLabel?: s
           ]
         : []),
     ]);
-    legs.append(el("div", { class: "leg" }, [route, trainRowEl(leg)]));
+    legs.append(el("div", { class: "leg" }, [route, trainRowEl(leg, ctx)]));
   });
   const tag =
     j.legs.length === 1
@@ -646,7 +667,7 @@ function journeyBodyEl(j: Journey, ctx: RenderCtx, label?: string, dateLabel?: s
     tag,
     // The worst leg decides what the whole trip costs, so the card says so up front
     // rather than leaving it to be spotted on a single leg further down.
-    ...journeyCostChips(j),
+    ...journeyCostChips(j, ctx),
     el("span", { class: "journey-total" }, [icon(I.clock), el("span", { text: formatDuration(j.totalDurationMin) })]),
   ]);
   return el("div", { class: "journey-body" }, [head, legs]);

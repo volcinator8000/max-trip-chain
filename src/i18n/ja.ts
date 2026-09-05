@@ -121,6 +121,7 @@ export const ja: Dict = {
   net_offer_action: "有効にする",
   badge_reserve: "要予約",
   badge_reserve_hint: "定期券で乗車はできますが、座席指定や追加料金は別途必要です。",
+  badge_covered_hint: "お持ちの{pass}でカバーされます — 追加料金なし",
   set_passes: "所有する定期券",
   set_passes_hint: "無料モードでは、お持ちの定期券が使える列車だけを表示します。",
   pass_route_hint: "2駅間のみ有効です。区間を指定してください。",

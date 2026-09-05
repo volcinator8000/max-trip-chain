@@ -121,6 +121,7 @@ export const it: Dict = {
   net_offer_action: "Attiva",
   badge_reserve: "Prenotazione",
   badge_reserve_hint: "Il tuo abbonamento copre il viaggio, ma prenotazione o supplemento si pagano a parte.",
+  badge_covered_hint: "Coperto dal tuo {pass}: nient'altro da pagare",
   set_passes: "I miei abbonamenti",
   set_passes_hint: "La modalità gratuita mostra solo i treni coperti da ciò che possiedi.",
   pass_route_hint: "Valido solo tra due stazioni: indicale.",

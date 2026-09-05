@@ -121,6 +121,7 @@ export const zh: Dict = {
   net_offer_action: "启用",
   badge_reserve: "需订座",
   badge_reserve_hint: "您的通票涵盖此行程，但订座或附加费仍需另付。",
+  badge_covered_hint: "由您的{pass}覆盖 — 无需额外付费",
   set_passes: "我的通票",
   set_passes_hint: "免费模式只显示您所持通票涵盖的列车。",
   pass_route_hint: "仅在两站之间有效 — 请指定。",

@@ -887,6 +887,10 @@ function ctx(): RenderCtx {
         ? profile.bookingUrl(from, to, date, time)
         : generateBookingUrl(from, to, date, time);
     },
+    // Name the covering subscription only when the list can actually be mixed. With
+    // the app in its default state every result is a free MAX JEUNE seat, so a chip
+    // on every row would be noise rather than information.
+    passLabel: (id) => (resultsCanBeMixed() ? passDisplayName(id) : undefined),
     cityInfoUrl,
     onOpenRoute: (origin, destination, open) => {
       // Drop any "via" carried over from a previous exact-trip search: drilling into
@@ -3831,6 +3835,21 @@ function syncCardFromPasses(): void {
   store.saveSettings(settings);
   query = { ...query, card };
   if (refs.card) refs.card.value = card;
+}
+
+/**
+ * True when the results could contain a mix of covered and paid trains — the only
+ * situation in which naming the covering subscription tells the reader anything.
+ */
+function resultsCanBeMixed(): boolean {
+  return settings.showPaid || settings.networks.length > 0 || settings.passes.length > 1;
+}
+
+/** Display name for a subscription, for the badge on a covered train. */
+function passDisplayName(id: string): string | undefined {
+  const key = `pass_${id.replace(/-/g, "_")}` as PassLabelKey;
+  const label = t(key);
+  return label === key ? undefined : label;
 }
 
 /** Localized country name for a profile's ISO code, falling back to the code itself. */

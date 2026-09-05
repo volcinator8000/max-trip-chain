@@ -75,6 +75,8 @@ export interface MaxTrain {
   discount?: number;
   /** Id of the discount card that applies, even when its rate isn't encoded. */
   discountPass?: string;
+  /** Id of the subscription that covers this train — what earns it its "free" state. */
+  coveredBy?: string;
   /** Operator label for the result badge, e.g. "SNCF", "DB", "SNCB". */
   operator?: string;
   axe?: string;

@@ -121,6 +121,7 @@ export const de: Dict = {
   net_offer_action: "Aktivieren",
   badge_reserve: "Reservierung",
   badge_reserve_hint: "Dein Abo deckt die Fahrt, aber Reservierung bzw. Zuschlag kosten extra.",
+  badge_covered_hint: "Durch deine {pass} abgedeckt – nichts weiter zu zahlen",
   set_passes: "Meine Abos",
   set_passes_hint: "Der Gratis-Modus zeigt nur Züge, die deine Abos abdecken.",
   pass_route_hint: "Nur zwischen zwei Bahnhöfen gültig – bitte angeben.",

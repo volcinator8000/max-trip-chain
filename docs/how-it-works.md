@@ -45,6 +45,8 @@ flowchart LR
 
 Settings has a **My subscriptions** list. What you tick decides what "free" means for you — the default view shows only the trains your passes actually cover.
 
+Trains your subscriptions cover are **named** rather than merely unbadged — a green "MAX JEUNE" chip says which pass earns you that seat, so a covered train is distinguishable from one that simply has no badge yet. It only appears when the list can actually be mixed: with the app in its default state every result is already a free MAX seat, and a chip on every row would say nothing. Sorting by **Cheapest** puts every covered train first.
+
 There are three answers, not two, because passes are not that tidy:
 
 - **Free** — nothing more to pay.

@@ -6,6 +6,7 @@ import {
   passById,
   passCoverage,
   coverageFor,
+  coverageWithPass,
   discountFor,
   heldPasses,
   isWeekendDate,
@@ -256,5 +257,46 @@ describe("ranking journeys by what they cost you", () => {
     expect(discounted).toBeGreaterThan(rank([leg("free")]));
     // ...and never good enough to beat a journey that costs nothing at all.
     expect(discounted).toBeGreaterThan(rank([leg("reserve")]));
+  });
+});
+
+describe("naming the subscription that covers a train", () => {
+  // A covered train used to carry no badge at all: "free" was only inferable from the
+  // absence of a "Paid" chip, which looks identical to a list that happens to be all
+  // free. Knowing WHICH pass earns it is what lets the UI say so.
+  const sncf = (over: Partial<MaxTrain> = {}) =>
+    train({ source: "sncf-tgvmax", operator: "SNCF", axe: "SUD EST", free: true, paid: false, ...over });
+
+  it("reports the pass that makes a train free", () => {
+    const got = coverageWithPass(sncf(), held("sncf-max-jeune"));
+    expect(got.coverage).toBe("free");
+    expect(got.passId).toBe("sncf-max-jeune");
+  });
+
+  it("reports the pass behind a reservation-only train", () => {
+    const got = coverageWithPass(train({ source: "ns", axe: "Intercity direct" }), held("ns-ov-jaarkaart"));
+    expect(got.coverage).toBe("reserve");
+    expect(got.passId).toBe("ns-ov-jaarkaart");
+  });
+
+  it("credits the pass that actually pays, not merely the first one held", () => {
+    // MAX SENIOR is weekday-only, so on a Saturday the JEUNE pass is what covers it.
+    const saturday = sncf({ date: "2026-09-12" });
+    const got = coverageWithPass(saturday, held("sncf-max-senior", "sncf-max-jeune"));
+    expect(got.coverage).toBe("free");
+    expect(got.passId).toBe("sncf-max-jeune");
+  });
+
+  it("names nothing when no pass covers the train", () => {
+    const got = coverageWithPass(train({ source: "db-fernverkehr", axe: "ICE 42" }), held("sncf-max-jeune"));
+    expect(got.coverage).toBe("paid");
+    expect(got.passId).toBeUndefined();
+  });
+
+  it("agrees with coverageFor, which is now a thin wrapper over it", () => {
+    for (const t of [sncf(), train({ axe: "Intercity direct" }), train({ source: "db-fernverkehr" })]) {
+      const passes = held("sncf-max-jeune", "ns-ov-jaarkaart");
+      expect(coverageFor(t, passes)).toBe(coverageWithPass(t, passes).coverage);
+    }
   });
 });

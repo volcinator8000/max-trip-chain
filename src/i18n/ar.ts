@@ -121,6 +121,7 @@ export const ar: Dict = {
   net_offer_action: "تفعيل",
   badge_reserve: "يلزم الحجز",
   badge_reserve_hint: "اشتراكك يغطي هذه الرحلة، لكن حجز المقعد أو الرسوم الإضافية تُدفع بشكل منفصل.",
+  badge_covered_hint: "مغطّى باشتراك {pass} لديك — لا شيء إضافي للدفع",
   set_passes: "اشتراكاتي",
   set_passes_hint: "الوضع المجاني يعرض فقط القطارات التي تغطيها اشتراكاتك.",
   pass_route_hint: "صالح بين محطتين فقط — حدّدهما.",

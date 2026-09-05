@@ -121,6 +121,7 @@ export const pt: Dict = {
   net_offer_action: "Activar",
   badge_reserve: "Reserva",
   badge_reserve_hint: "O seu passe cobre a viagem, mas a reserva de lugar ou suplemento pagam-se à parte.",
+  badge_covered_hint: "Coberto pelo seu {pass} — nada mais a pagar",
   set_passes: "Os meus passes",
   set_passes_hint: "O modo gratuito mostra apenas os comboios cobertos pelo que possui.",
   pass_route_hint: "Válido apenas entre duas estações — indique-as.",

@@ -121,6 +121,7 @@ export const nl: Dict = {
   net_offer_action: "Aanzetten",
   badge_reserve: "Reservering",
   badge_reserve_hint: "Je abonnement dekt de reis, maar een reservering of toeslag kost extra.",
+  badge_covered_hint: "Gedekt door je {pass} — verder niets te betalen",
   set_passes: "Mijn abonnementen",
   set_passes_hint: "De gratis-modus toont alleen treinen die je abonnementen dekken.",
   pass_route_hint: "Alleen geldig tussen twee stations — geef ze op.",

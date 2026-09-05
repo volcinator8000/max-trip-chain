@@ -125,6 +125,7 @@ export const en: Dict = {
   net_offer_action: "Turn on",
   badge_reserve: "Reservation",
   badge_reserve_hint: "Your pass covers this journey, but a seat reservation or supplement still costs extra.",
+  badge_covered_hint: "Covered by your {pass} — nothing more to pay",
   set_passes: "My subscriptions",
   set_passes_hint: "Free mode shows only the trains covered by what you hold.",
   pass_route_hint: "Valid between two stations only — name them.",

@@ -311,11 +311,28 @@ export function coverageFor(
   held: PassDefinition[],
   bindings: Record<string, RouteBinding> = {},
 ): Coverage {
-  let best: Coverage = "paid";
+  return coverageWithPass(train, held, bindings).coverage;
+}
+
+/**
+ * What a train costs the holder AND which pass earned that.
+ *
+ * Knowing merely that a train is free is not enough to say so on screen: a traveller
+ * holding several subscriptions wants to see WHICH one covers this train, and until
+ * now a covered train carried no badge at all — its coverage was visible only as the
+ * absence of a "Paid" chip, which is indistinguishable from a list that happens to be
+ * all-free.
+ */
+export function coverageWithPass(
+  train: MaxTrain,
+  held: PassDefinition[],
+  bindings: Record<string, RouteBinding> = {},
+): { coverage: Coverage; passId?: string } {
+  let best: { coverage: Coverage; passId?: string } = { coverage: "paid" };
   for (const pass of held) {
     const got = passCoverage(pass, train, bindings[pass.id]);
-    if (got === "free") return "free"; // nothing beats free
-    if (got === "reserve") best = "reserve";
+    if (got === "free") return { coverage: "free", passId: pass.id }; // nothing beats free
+    if (got === "reserve" && best.coverage !== "reserve") best = { coverage: "reserve", passId: pass.id };
   }
   return best;
 }

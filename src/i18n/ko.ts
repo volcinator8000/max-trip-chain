@@ -121,6 +121,7 @@ export const ko: Dict = {
   net_offer_action: "켜기",
   badge_reserve: "예약 필요",
   badge_reserve_hint: "정기권으로 이동은 되지만 좌석 예약이나 추가 요금은 별도입니다.",
+  badge_covered_hint: "보유하신 {pass}로 커버됩니다 — 추가 요금 없음",
   set_passes: "내 정기권",
   set_passes_hint: "무료 모드는 보유한 정기권이 적용되는 열차만 표시합니다.",
   pass_route_hint: "두 역 사이에서만 유효합니다 — 지정하세요.",

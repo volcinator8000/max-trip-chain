@@ -1852,6 +1852,16 @@ a {
   animation: none;
   opacity: 0.7;
 }
+/* Covered by a subscription the traveller holds. Uses the accent green — the same
+   colour the app already means "free seat" with — so the good news reads as good news
+   beside the amber "Paid" and blue "Reservation" chips. Shown only when the list can
+   be mixed; naming the pass on every row of an all-free list is noise. */
+.chip-covered {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: transparent;
+  font-weight: 640;
+}
 /* Paid train: runs, but no free MAX seat. Amber rather than the accent green, so a
    paid result can never be skimmed as a free one — this is the whole point of the
    badge. Same amber family as the one-change chip, which already reads as "caveat". */
